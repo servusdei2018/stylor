@@ -1,6 +1,18 @@
 cmake_minimum_required(VERSION 3.20)
 project(Stylor LANGUAGES CXX)
 
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -march=native")
+
+cmake_policy(SET CMP0135 NEW)
+
+include_directories(${CMAKE_SOURCE_DIR}/include)
+
+add_subdirectory(src)
+add_subdirectory(tests)
+
+
 find_program(CLANG_FORMAT NAMES clang-format)
 
 if(CLANG_FORMAT)
@@ -22,14 +34,5 @@ if(CLANG_FORMAT)
 else()
     message(WARNING "clang-format not found. Code formatting will not be available.")
 endif()
-
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -march=native")
-
-cmake_policy(SET CMP0135 NEW)
-
-add_subdirectory(src)
-add_subdirectory(tests)
 
 enable_testing()

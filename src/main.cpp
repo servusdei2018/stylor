@@ -1,12 +1,14 @@
 #include <CLI/CLI.hpp>
 #include <iostream>
+#include "stylor/version.hpp"
 
 /// \brief Entry point for the Stylor CLI.
 /// \param argc Argument count.
 /// \param argv Argument vector.
 /// \return Exit status.
 int main(int argc, char **argv) {
-  CLI::App app{"Stylor"};
+  CLI::App app{"stylor " + std::string(stylor::version_string)};
+  app.set_version_flag("-v,--version", stylor::version_string);
 
   std::string model_path;
   std::string img1, img2;
