@@ -11,6 +11,8 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(cli11_proj)
 
-add_executable(stylor_cli main.cpp)
+file(GLOB_RECURSE SOURCES ${CMAKE_SOURCE_DIR}/src/*.cpp)
+
+add_executable(stylor_cli ${SOURCES})
 target_link_libraries(stylor_cli PRIVATE stylor CLI11::CLI11)
 set_target_properties(stylor_cli PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
