@@ -8,6 +8,12 @@ Tensor::Tensor(std::vector<dnnl::memory::dim> dims)
             dnnl::memory::format_tag::nchw),
       memory_(desc_, engine_) {}
 
+Tensor::Tensor(std::vector<dnnl::memory::dim> dims, const dnnl::engine &engine)
+    : dims_(std::move(dims)), engine_(engine),
+      desc_(dims_, dnnl::memory::data_type::f32,
+            dnnl::memory::format_tag::nchw),
+      memory_(desc_, engine_) {}
+
 float *Tensor::get_data() {
   return static_cast<float *>(memory_.get_data_handle());
 }

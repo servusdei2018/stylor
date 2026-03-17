@@ -6,13 +6,18 @@
 
 namespace stylor {
 
-/// @brief A wrapper around oneDNN memory objects for easy manipulation.
+/// @brief Tensor class to wrap oneDNN memory objects.
 class Tensor {
 public:
   /// @brief Construct a tensor with specific dimension sizes (e.g., {N, C, H,
-  /// W}).
+  /// W}) using a privately-owned CPU engine (device index 0).
   /// @param dims The sizes for each dimension.
-  Tensor(std::vector<dnnl::memory::dim> dims);
+  explicit Tensor(std::vector<dnnl::memory::dim> dims);
+
+  /// @brief Construct a tensor sharing an existing engine.
+  /// @param dims   The sizes for each dimension.
+  /// @param engine An already-constructed oneDNN engine to use.
+  Tensor(std::vector<dnnl::memory::dim> dims, const dnnl::engine &engine);
 
   /// @brief Get the raw data pointer for read/write operations.
   /// @return A pointer to the underlying float data array.

@@ -27,6 +27,8 @@ set(DNNL_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(DNNL_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(onednn)
 
+enable_testing()
+
 add_subdirectory(src)
 add_subdirectory(tests)
 
@@ -52,5 +54,3 @@ if(CLANG_FORMAT)
 else()
     message(WARNING "clang-format not found. Code formatting will not be available.")
 endif()
-
-enable_testing()
