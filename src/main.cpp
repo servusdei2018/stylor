@@ -2,7 +2,6 @@
 #include "commands/train.hpp"
 #include "stylor/version.hpp"
 #include <CLI/CLI.hpp>
-#include <iostream>
 
 /// @brief Entry point for the Stylor CLI.
 /// @param argc Argument count.

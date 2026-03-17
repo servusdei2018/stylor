@@ -9,6 +9,24 @@ cmake_policy(SET CMP0135 NEW)
 
 include_directories(${CMAKE_SOURCE_DIR}/include)
 
+include(FetchContent)
+
+FetchContent_Declare(
+    stb
+    GIT_REPOSITORY https://github.com/nothings/stb.git
+    GIT_TAG master
+)
+FetchContent_MakeAvailable(stb)
+
+FetchContent_Declare(
+    onednn
+    GIT_REPOSITORY https://github.com/oneapi-src/oneDNN.git
+    GIT_TAG v3.11.1
+)
+set(DNNL_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(DNNL_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(onednn)
+
 add_subdirectory(src)
 add_subdirectory(tests)
 

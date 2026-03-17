@@ -2,7 +2,16 @@ include(FetchContent)
 
 add_library(stylor STATIC
     stylor.cpp
+    image.cpp
+    tensor.cpp
 )
+
+target_include_directories(stylor PUBLIC
+    ${stb_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/include
+)
+
+target_link_libraries(stylor PUBLIC dnnl)
 
 FetchContent_Declare(
     cli11_proj

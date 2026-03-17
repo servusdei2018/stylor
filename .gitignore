@@ -21,6 +21,7 @@ _deps
 *.d
 
 # Compiled Object files
+.cache/
 *.slo
 *.lo
 *.o
