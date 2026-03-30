@@ -8,6 +8,8 @@ add_library(stylor STATIC
     vgg/vgg.cpp
     vgg/preprocessing.cpp
     vgg/weight_loader.cpp
+    safetensors_io.cpp
+    transform_network.cpp
 )
 
 target_include_directories(stylor PUBLIC
@@ -15,7 +17,7 @@ target_include_directories(stylor PUBLIC
     ${CMAKE_SOURCE_DIR}/include
 )
 
-target_link_libraries(stylor PUBLIC dnnl)
+target_link_libraries(stylor PUBLIC dnnl nlohmann_json::nlohmann_json)
 
 FetchContent_Declare(
     cli11_proj
@@ -23,6 +25,12 @@ FetchContent_Declare(
     GIT_TAG v2.4.2
 )
 FetchContent_MakeAvailable(cli11_proj)
+
+FetchContent_Declare(
+    json
+    URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz
+)
+FetchContent_MakeAvailable(json)
 
 file(GLOB_RECURSE SOURCES ${CMAKE_SOURCE_DIR}/src/*.cpp)
 

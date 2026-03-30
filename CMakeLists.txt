@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 project(Stylor LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -march=native")
 
@@ -41,8 +41,6 @@ if(CLANG_FORMAT)
         ${CMAKE_SOURCE_DIR}/include/*.hpp 
         ${CMAKE_SOURCE_DIR}/tests/*.cpp 
         ${CMAKE_SOURCE_DIR}/tests/*.hpp 
-        ${CMAKE_SOURCE_DIR}/*.cpp 
-        ${CMAKE_SOURCE_DIR}/*.hpp 
     )
 
     add_custom_target(

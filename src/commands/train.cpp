@@ -1,20 +1,22 @@
 #include "train.hpp"
+#include "stylor/transform_network.hpp"
 #include <iostream>
 
 namespace commands {
 
-/// @brief Train the style transfer model.
-/// @param model Path to save the model.
-/// @param style Path to the style image.
-/// @param content Path to the content image.
+// Train the style transfer model.
 void handle_train(const std::string &model, const std::string &style,
                   const std::string &content) {
   std::cout << "Training model: " << model << " using " << style << " and "
             << content << '\n';
+
+  dnnl::engine engine(dnnl::engine::kind::cpu, 0);
+  stylor::TransformNetwork net(engine, 256, 256);
+  net.save_weights(model);
+  std::cout << "Saved initial model weights to: " << model << '\n';
 }
 
-/// @brief Register the train command with the CLI app.
-/// @param app The CLI app to register the command to.
+// Register the train command with the CLI app.
 void register_train(CLI::App &app) {
   auto *train_cmd =
       app.add_subcommand("train", "Train the style transfer model");
