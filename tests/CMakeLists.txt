@@ -10,6 +10,7 @@ add_executable(test_stylor
     test_main.cpp
     test_image.cpp
     test_tensor.cpp
+    test_loss.cpp
     test_vgg.cpp
     test_preprocessing.cpp
     test_weight_loader.cpp
