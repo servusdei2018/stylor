@@ -129,15 +129,27 @@ void Vgg19::build_block(int block, const std::vector<ConvSpec> &convs,
 
     // Convolution primitive descriptor (implicit bias).
     auto conv_pd = dnnl::convolution_forward::primitive_desc(
-        engine_, dnnl::prop_kind::forward_inference,
+        engine_, dnnl::prop_kind::forward_training,
         dnnl::algorithm::convolution_direct, src_md, w_md, b_md, dst_md,
         strides, padding, padding);
 
+    // Convolution backward data primitive descriptor
+    auto conv_bw_data_pd = dnnl::convolution_backward_data::primitive_desc(
+        engine_, dnnl::algorithm::convolution_direct, src_md, w_md, dst_md,
+        strides, padding, padding, conv_pd);
+
     // ReLU primitive descriptor (in-place on dst).
     auto relu_pd = dnnl::eltwise_forward::primitive_desc(
-        engine_, dnnl::prop_kind::forward_inference,
+        engine_, dnnl::prop_kind::forward_training,
         dnnl::algorithm::eltwise_relu, dst_md, dst_md,
         0.0f /*alpha: negative slope*/, 0.0f /*beta*/);
+
+    // ReLU backward primitive descriptor
+    auto relu_bw_pd = dnnl::eltwise_backward::primitive_desc(
+        engine_, dnnl::algorithm::eltwise_relu_use_dst_for_bwd,
+        dst_md /* diff_src */, dst_md /* diff_dst */,
+        dst_md /* data_desc (using dst) */, 0.0f /* alpha */, 0.0f /* beta */,
+        relu_pd);
 
     LayerPrimitive lp;
     lp.weights_mem = dnnl::memory(conv_pd.weights_desc(), engine_);
@@ -156,6 +168,13 @@ void Vgg19::build_block(int block, const std::vector<ConvSpec> &convs,
     lp.relu = dnnl::eltwise_forward(relu_pd);
 
     lp.capture_key = captures[i];
+
+    // Create memory and backward primitives
+    lp.diff_src_mem = dnnl::memory(conv_bw_data_pd.diff_src_desc(), engine_);
+    lp.diff_dst_mem = dnnl::memory(conv_bw_data_pd.diff_dst_desc(),
+                                   engine_); // Same as relu diff_dst
+    lp.relu_bw = dnnl::eltwise_backward(relu_bw_pd);
+    lp.conv_bw_data = dnnl::convolution_backward_data(conv_bw_data_pd);
 
     in_out_mem = lp.dst_mem; // next primitive reads from here
 
@@ -182,13 +201,22 @@ void Vgg19::build_pool(dnnl::memory &in_out_mem) {
   dnnl::memory::dims padding = {0, 0};
 
   auto pool_pd = dnnl::pooling_forward::primitive_desc(
-      engine_, dnnl::prop_kind::forward_inference, dnnl::algorithm::pooling_max,
+      engine_, dnnl::prop_kind::forward_training, dnnl::algorithm::pooling_max,
       src_md, dst_md, strides, kernel, dilation, padding, padding);
+
+  auto pool_bw_pd = dnnl::pooling_backward::primitive_desc(
+      engine_, dnnl::algorithm::pooling_max, src_md, dst_md, strides, kernel,
+      dilation, padding, padding, pool_pd);
 
   PoolPrimitive pp;
   pp.src_mem = in_out_mem;
   pp.dst_mem = dnnl::memory(pool_pd.dst_desc(), engine_);
+  pp.workspace_mem = dnnl::memory(pool_pd.workspace_desc(), engine_);
   pp.pool = dnnl::pooling_forward(pool_pd);
+
+  pp.diff_src_mem = dnnl::memory(pool_bw_pd.diff_src_desc(), engine_);
+  pp.diff_dst_mem = dnnl::memory(pool_bw_pd.diff_dst_desc(), engine_);
+  pp.pool_bw = dnnl::pooling_backward(pool_bw_pd);
 
   in_out_mem = pp.dst_mem;
 
@@ -268,6 +296,7 @@ void Vgg19::forward(const Tensor &input) {
       pp.pool.execute(stream_, {
                                    {DNNL_ARG_SRC, pp.src_mem},
                                    {DNNL_ARG_DST, pp.dst_mem},
+                                   {DNNL_ARG_WORKSPACE, pp.workspace_mem},
                                });
     }
   }
@@ -314,5 +343,124 @@ const Tensor &Vgg19::get_feature_map(VggLayer layer) const {
 
 bool Vgg19::weights_loaded() const noexcept { return weights_loaded_; }
 bool Vgg19::forward_done() const noexcept { return forward_done_; }
+
+Tensor
+Vgg19::backward(const std::unordered_map<VggLayer, Tensor> &loss_gradients) {
+  if (!forward_done_) {
+    throw std::logic_error("Vgg19::backward: call forward() before backward()");
+  }
+
+  // Helper macro to wrap dnnl::memory mapping logic securely.
+  auto add_tensor_to_memory = [](dnnl::memory &mem, const Tensor &tensor) {
+    float *mem_data = static_cast<float *>(mem.get_data_handle());
+    const float *tensor_data = static_cast<const float *>(tensor.get_data());
+    std::size_t size = mem.get_desc().get_size() / sizeof(float);
+    for (std::size_t i = 0; i < size; ++i) {
+      mem_data[i] += tensor_data[i];
+    }
+  };
+
+  // Zero out all diff_dst and diff_src buffers before backward pass
+  for (auto &lp : conv_layers_) {
+    std::memset(lp.diff_dst_mem.get_data_handle(), 0,
+                lp.diff_dst_mem.get_desc().get_size());
+    std::memset(lp.diff_src_mem.get_data_handle(), 0,
+                lp.diff_src_mem.get_desc().get_size());
+  }
+  for (auto &pp : pool_layers_) {
+    std::memset(pp.diff_dst_mem.get_data_handle(), 0,
+                pp.diff_dst_mem.get_desc().get_size());
+    std::memset(pp.diff_src_mem.get_data_handle(), 0,
+                pp.diff_src_mem.get_desc().get_size());
+  }
+
+  // Now, iterate through the layers in REVERSE order.
+  for (auto it = exec_order_.rbegin(); it != exec_order_.rend(); ++it) {
+    bool is_pool = it->first;
+    std::size_t idx = it->second;
+
+    // Check if there is an external gradient injecting into this step.
+    if (!is_pool) {
+      auto &lp = conv_layers_[idx];
+
+      // If this layer was a capture point, there might be a loss gradient
+      // mapped to it.
+      if (lp.capture_key >= 0) {
+        VggLayer vgg_enum = static_cast<VggLayer>(lp.capture_key);
+        auto grad_it = loss_gradients.find(vgg_enum);
+        if (grad_it != loss_gradients.end()) {
+          // Add the external gradient to the current diff_dst
+          add_tensor_to_memory(lp.diff_dst_mem, grad_it->second);
+        }
+      }
+
+      // ReLU backward
+      lp.relu_bw.execute(
+          stream_, {
+                       {DNNL_ARG_SRC, lp.dst_mem},
+                       {DNNL_ARG_DIFF_DST, lp.diff_dst_mem},
+                       {DNNL_ARG_DIFF_SRC, lp.diff_dst_mem} // in-place diff
+                   });
+
+      // Take diff_dst_mem -> compute into diff_src_mem
+      lp.conv_bw_data.execute(stream_, {{DNNL_ARG_DIFF_DST, lp.diff_dst_mem},
+                                        {DNNL_ARG_WEIGHTS, lp.weights_mem},
+                                        {DNNL_ARG_DIFF_SRC, lp.diff_src_mem}});
+
+      // Pass the gradient to the previous layer.
+      if (it + 1 != exec_order_.rend()) {
+        auto next_step = *(it + 1);
+        dnnl::memory *prev_diff_dst = nullptr;
+        if (next_step.first) {
+          prev_diff_dst = &pool_layers_[next_step.second].diff_dst_mem;
+        } else {
+          prev_diff_dst = &conv_layers_[next_step.second].diff_dst_mem;
+        }
+
+        // Copy diff_src to the previous layer's diff_dst
+        float *dst = static_cast<float *>(prev_diff_dst->get_data_handle());
+        float *src = static_cast<float *>(lp.diff_src_mem.get_data_handle());
+        std::memcpy(dst, src, prev_diff_dst->get_desc().get_size());
+      }
+    } else {
+      auto &pp = pool_layers_[idx];
+
+      pp.pool_bw.execute(stream_, {{DNNL_ARG_DIFF_DST, pp.diff_dst_mem},
+                                   {DNNL_ARG_WORKSPACE, pp.workspace_mem},
+                                   {DNNL_ARG_DIFF_SRC, pp.diff_src_mem}});
+
+      // Pass the gradient to the previous layer
+      if (it + 1 != exec_order_.rend()) {
+        auto next_step = *(it + 1);
+        dnnl::memory *prev_diff_dst = nullptr;
+        if (next_step.first) {
+          prev_diff_dst = &pool_layers_[next_step.second].diff_dst_mem;
+        } else {
+          prev_diff_dst = &conv_layers_[next_step.second].diff_dst_mem;
+        }
+
+        // Copy diff_src to the previous layer's diff_dst
+        float *dst = static_cast<float *>(prev_diff_dst->get_data_handle());
+        float *src = static_cast<float *>(pp.diff_src_mem.get_data_handle());
+        std::memcpy(dst, src, prev_diff_dst->get_desc().get_size());
+      }
+    }
+  }
+  stream_.wait();
+
+  // The gradient w.r.t the input image is now in the first conv
+  // layer's diff_src_mem
+  auto diff_src_desc = conv_layers_.front().diff_src_mem.get_desc();
+  auto diff_src_dims = diff_src_desc.get_dims();
+  std::vector<dnnl::memory::dim> dims(diff_src_dims.begin(),
+                                      diff_src_dims.end());
+
+  Tensor img_grad(std::move(dims), engine_);
+  std::memcpy(img_grad.get_data(),
+              conv_layers_.front().diff_src_mem.get_data_handle(),
+              diff_src_desc.get_size());
+
+  return img_grad;
+}
 
 } // namespace stylor

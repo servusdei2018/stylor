@@ -1,4 +1,3 @@
-#include "../include/stylor.hpp"
 #include <gtest/gtest.h>
 
 /// \brief Verify the test framework is functional.

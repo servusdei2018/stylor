@@ -4,7 +4,10 @@
 
 namespace commands {
 
-// Run inference using a trained model.
+/// @brief Run inference using a trained model.
+/// @param model Path to the trained model.
+/// @param input Path to the input image.
+/// @param output Path to save the stylized output.
 void handle_infer(const std::string &model, const std::string &input,
                   const std::string &output) {
   std::cout << "Running inference on " << input << " using model " << model
@@ -16,7 +19,8 @@ void handle_infer(const std::string &model, const std::string &input,
   std::cout << "Loaded model weights successfully from: " << model << '\n';
 }
 
-// Register the infer command with the CLI app.
+/// @brief Register the infer command with the CLI app.
+/// @param app The CLI app to register the command to.
 void register_infer(CLI::App &app) {
   auto *infer_cmd =
       app.add_subcommand("infer", "Run inference using a trained model");

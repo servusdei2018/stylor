@@ -34,46 +34,30 @@ public:
   /// @param input Pre-processed Float32 NCHW tensor {1, 3, H, W}.
   void forward(const Tensor &input);
 
+  /// @brief Execute a backward pass to compute gradients.
+  /// @param grad_output The backward gradient from the VGG loss.
+  void backward(const Tensor &grad_output);
+
   /// @brief Get the generated output tensor.
   const Tensor &get_output() const;
 
+  // Memory chunks to back the learned parameter weights.
+  struct ParamDescriptor {
+    dnnl::memory mem;
+    std::vector<int> shape;
+    dnnl::memory diff_mem; // Gradient for optimization
+  };
+
+  /// @brief Get the parameters of the network.
+  std::unordered_map<std::string, ParamDescriptor> &get_parameters() {
+    return parameters_;
+  }
+  const std::unordered_map<std::string, ParamDescriptor> &
+  get_parameters() const {
+    return parameters_;
+  }
+
 private:
-  struct ConvPrimitive {
-    std::string name;
-    dnnl::memory weights_mem;
-    dnnl::memory bias_mem;
-    dnnl::memory src_mem;
-    dnnl::memory dst_mem;
-    dnnl::convolution_forward conv;
-  };
-
-  struct GroupNormPrimitive {
-    std::string name;
-    dnnl::memory weights_mem; // Scale and shift stored together in oneDNN: 2x C
-    dnnl::memory src_mem;
-    dnnl::memory dst_mem;
-    dnnl::group_normalization_forward gn;
-  };
-
-  struct ReluPrimitive {
-    dnnl::memory src_mem;
-    dnnl::memory dst_mem;
-    dnnl::eltwise_forward relu;
-  };
-
-  struct ResamplingPrimitive {
-    dnnl::memory src_mem;
-    dnnl::memory dst_mem;
-    dnnl::resampling_forward resample;
-  };
-
-  struct AddPrimitive {
-    dnnl::memory src0_mem; // Shortcut
-    dnnl::memory src1_mem; // Residual
-    dnnl::memory dst_mem;
-    dnnl::sum add;
-  };
-
   // Helper properties
   dnnl::engine engine_;
   dnnl::stream stream_;
@@ -82,26 +66,29 @@ private:
 
   // Primitives and pipeline execution
   std::vector<std::function<void()>> pipeline_;
+  std::vector<std::function<void()>> backward_pipeline_;
 
-  // Memory chunks to back the learned parameter weights.
-  struct ParamDescriptor {
-    dnnl::memory mem;
-    std::vector<int> shape;
-  };
   std::unordered_map<std::string, ParamDescriptor> parameters_;
 
   std::unique_ptr<Tensor> output_tensor_;
 
+  struct MemPair {
+    dnnl::memory fwd;
+    dnnl::memory bwd;
+  };
+
+  MemPair input_mempair_;
+  MemPair output_mempair_;
+
   // Construction helpers
-  dnnl::memory create_conv(const std::string &name, int ic, int oc, int kernel,
-                           int stride, int padding, dnnl::memory src_mem);
-  dnnl::memory create_norm(const std::string &name, int channels,
-                           dnnl::memory src_mem);
-  dnnl::memory create_relu(dnnl::memory src_mem);
-  dnnl::memory create_resample(dnnl::memory src_mem, float scale);
-  dnnl::memory create_add(dnnl::memory src0_mem, dnnl::memory src1_mem);
-  dnnl::memory create_resblock(const std::string &name, int channels,
-                               dnnl::memory src_mem);
+  MemPair create_conv(const std::string &name, int ic, int oc, int kernel,
+                      int stride, int padding, MemPair src_mem);
+  MemPair create_norm(const std::string &name, int channels, MemPair src_mem);
+  MemPair create_relu(MemPair src_mem);
+  MemPair create_resample(MemPair src_mem, float scale);
+  MemPair create_add(MemPair src0_mem, MemPair src1_mem);
+  MemPair create_resblock(const std::string &name, int channels,
+                          MemPair src_mem);
 };
 
 } // namespace stylor

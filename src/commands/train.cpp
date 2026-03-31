@@ -4,7 +4,10 @@
 
 namespace commands {
 
-// Train the style transfer model.
+/// @brief Train the style transfer model.
+/// @param model Path to save the model.
+/// @param style Path to the style image.
+/// @param content Path to the content image.
 void handle_train(const std::string &model, const std::string &style,
                   const std::string &content) {
   std::cout << "Training model: " << model << " using " << style << " and "
@@ -16,7 +19,8 @@ void handle_train(const std::string &model, const std::string &style,
   std::cout << "Saved initial model weights to: " << model << '\n';
 }
 
-// Register the train command with the CLI app.
+/// @brief Register the train command with the CLI app.
+/// @param app The CLI app to register the command to.
 void register_train(CLI::App &app) {
   auto *train_cmd =
       app.add_subcommand("train", "Train the style transfer model");

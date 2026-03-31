@@ -59,6 +59,13 @@ public:
   /// @throws std::logic_error If forward() has not been called yet.
   const Tensor &get_feature_map(VggLayer layer) const;
 
+  /// @brief Execute a backward pass through the VGG-19 graph to compute the
+  /// gradient w.r.t to the input image.
+  /// @param loss_gradients Gradients from the loss functions at captured
+  /// layers.
+  /// @return Tensor containing the gradient with respect to the input image.
+  Tensor backward(const std::unordered_map<VggLayer, Tensor> &loss_gradients);
+
   /// @brief Return true if load_weights() has completed successfully.
   bool weights_loaded() const noexcept;
 
@@ -83,12 +90,22 @@ private:
     dnnl::convolution_forward conv;
     dnnl::eltwise_forward relu;
     int capture_key = -1; ///< -1 = no capture; >=0 = VggLayer enum value
+
+    dnnl::memory diff_src_mem;
+    dnnl::memory diff_dst_mem;
+    dnnl::eltwise_backward relu_bw;
+    dnnl::convolution_backward_data conv_bw_data;
   };
 
   struct PoolPrimitive {
     dnnl::memory src_mem;
     dnnl::memory dst_mem;
     dnnl::pooling_forward pool;
+
+    dnnl::memory diff_src_mem;
+    dnnl::memory diff_dst_mem;
+    dnnl::memory workspace_mem;
+    dnnl::pooling_backward pool_bw;
   };
 
   // ------------------------------------------------- construction helpers

@@ -5,6 +5,7 @@ add_library(stylor STATIC
     image.cpp
     tensor.cpp
     loss.cpp
+    optimizer.cpp
     vgg/vgg.cpp
     vgg/preprocessing.cpp
     vgg/weight_loader.cpp
