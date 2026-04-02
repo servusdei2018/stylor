@@ -89,6 +89,7 @@ private:
   MemPair create_add(MemPair src0_mem, MemPair src1_mem);
   MemPair create_resblock(const std::string &name, int channels,
                           MemPair src_mem);
+  void init_weights(); // Kaiming uniform init for conv, scale=1 for norm
 };
 
 } // namespace stylor

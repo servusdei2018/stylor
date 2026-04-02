@@ -51,7 +51,7 @@ public:
   /// @param input Pre-processed NCHW float tensor {1, 3, H, W}.
   /// @throws std::logic_error If load_weights() has not been called yet.
   /// @throws std::invalid_argument If @p input dimensions do not match.
-  void forward(const Tensor &input);
+  void forward(const Tensor &input, dnnl::stream &stream);
 
   /// @brief Retrieve a cached intermediate activation.
   /// @param layer  Which layer's output to retrieve.
@@ -64,7 +64,8 @@ public:
   /// @param loss_gradients Gradients from the loss functions at captured
   /// layers.
   /// @return Tensor containing the gradient with respect to the input image.
-  Tensor backward(const std::unordered_map<VggLayer, Tensor> &loss_gradients);
+  Tensor backward(const std::unordered_map<VggLayer, Tensor> &loss_gradients,
+                  dnnl::stream &stream);
 
   /// @brief Return true if load_weights() has completed successfully.
   bool weights_loaded() const noexcept;
@@ -118,7 +119,6 @@ private:
 
   // ------------------------------------------------------------------ data
   dnnl::engine engine_;
-  dnnl::stream stream_;
 
   std::vector<LayerPrimitive> conv_layers_;
   std::vector<PoolPrimitive> pool_layers_;
@@ -131,6 +131,7 @@ private:
   std::vector<std::pair<bool, std::size_t>> exec_order_;
 
   std::unordered_map<int, dnnl::memory> feature_map_mems_;
+  mutable std::unordered_map<int, Tensor> feature_map_cache_;
 
   int input_h_;
   int input_w_;

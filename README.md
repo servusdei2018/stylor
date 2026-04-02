@@ -9,6 +9,16 @@ cmake -B build -S .
 cmake --build build
 ```
 
+### Pre-trained Weights
+
+To train new style transfer models, you will need the pre-trained VGG-19 weights converted into Stylor's specific binary format. You can download the ready-to-use `vgg19.bin` file directly from our [GitHub releases](https://github.com/servusdei2018/stylor/releases).
+
+Alternatively, you can generate your own weights file using the included python script:
+
+```bash
+cd scripts && uv run export_vgg19.py
+```
+
 ### Available Targets
 
 You can build specific targets using `cmake --build build --target <target_name>` (or `make <target_name>` from within the `build` directory).

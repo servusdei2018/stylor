@@ -1,6 +1,9 @@
 #include "stylor/transform_network.hpp"
 #include "stylor/safetensors_io.hpp"
+#include <cmath>
+#include <cstring>
 #include <iostream>
+#include <random>
 
 namespace stylor {
 
@@ -56,6 +59,41 @@ TransformNetwork::TransformNetwork(const dnnl::engine &engine, int input_h,
   output_mempair_ = current_mem;
   output_tensor_ = std::make_unique<Tensor>(
       output_mempair_.fwd.get_desc().get_dims(), engine_);
+
+  // Initialise all parameters before any training or inference.
+  init_weights();
+}
+
+void TransformNetwork::init_weights() {
+  std::mt19937 rng(42); // deterministic seed for reproducibility
+
+  for (auto &pair : parameters_) {
+    const std::string &name = pair.first;
+    ParamDescriptor &desc = pair.second;
+    float *ptr = static_cast<float *>(desc.mem.get_data_handle());
+    std::size_t count = 1;
+    for (int d : desc.shape)
+      count *= d;
+
+    if (name.size() >= 7 && name.substr(name.size() - 7) == ".weight") {
+      // Determine if this is a conv weight (rank 4) or norm scale (rank 1).
+      if (desc.shape.size() == 4) {
+        // Kaiming uniform initialisation: fan_in = ic * kH * kW
+        int fan_in = desc.shape[1] * desc.shape[2] * desc.shape[3];
+        float bound = std::sqrt(1.0f / static_cast<float>(fan_in));
+        std::uniform_real_distribution<float> dist(-bound, bound);
+        for (std::size_t i = 0; i < count; ++i)
+          ptr[i] = dist(rng);
+      } else {
+        // Norm scale: initialise to 1.0
+        for (std::size_t i = 0; i < count; ++i)
+          ptr[i] = 1.0f;
+      }
+    } else {
+      // Biases (conv) and norm shift: initialise to 0.0
+      std::memset(ptr, 0, count * sizeof(float));
+    }
+  }
 }
 
 void TransformNetwork::load_weights(const std::string &path) {
@@ -96,31 +134,30 @@ void TransformNetwork::save_weights(const std::string &path) const {
 }
 
 void TransformNetwork::forward(const Tensor &input) {
-  // Inject input into the first layer's fwd_mem
-  float *fwd_data = static_cast<float *>(input_mempair_.fwd.get_data_handle());
-  const float *in_data = static_cast<const float *>(input.get_data());
-  std::memcpy(fwd_data, in_data, input.get_memory().get_desc().get_size());
+  // Inject input into the first layer's fwd_mem using reorder
+  dnnl::reorder(input.get_memory(), input_mempair_.fwd)
+      .execute(stream_, {{DNNL_ARG_FROM, input.get_memory()},
+                         {DNNL_ARG_TO, input_mempair_.fwd}});
 
   for (auto &prim : pipeline_) {
     prim();
   }
   stream_.wait();
 
-  // Extract from output layer's fwd_mem
-  float *out_data = static_cast<float *>(output_tensor_->get_data());
-  const float *term_fwd =
-      static_cast<const float *>(output_mempair_.fwd.get_data_handle());
-  std::memcpy(out_data, term_fwd,
-              output_tensor_->get_memory().get_desc().get_size());
+  stream_.wait();
+
+  // Extract from output layer's fwd_mem using reorder
+  dnnl::reorder(output_mempair_.fwd, output_tensor_->get_memory())
+      .execute(stream_, {{DNNL_ARG_FROM, output_mempair_.fwd},
+                         {DNNL_ARG_TO, output_tensor_->get_memory()}});
+  stream_.wait();
 }
 
 void TransformNetwork::backward(const Tensor &grad_output) {
-  // Inject gradient
-  float *out_bwd = static_cast<float *>(output_mempair_.bwd.get_data_handle());
-  const float *external_grad =
-      static_cast<const float *>(grad_output.get_data());
-  std::memcpy(out_bwd, external_grad,
-              grad_output.get_memory().get_desc().get_size());
+  // Inject gradient using reorder
+  dnnl::reorder(grad_output.get_memory(), output_mempair_.bwd)
+      .execute(stream_, {{DNNL_ARG_FROM, grad_output.get_memory()},
+                         {DNNL_ARG_TO, output_mempair_.bwd}});
 
   for (auto it = backward_pipeline_.rbegin(); it != backward_pipeline_.rend();
        ++it) {
@@ -291,7 +328,7 @@ TransformNetwork::MemPair TransformNetwork::create_relu(MemPair src_mem) {
   });
 
   backward_pipeline_.push_back([=, this]() mutable {
-    relu_bw.execute(stream_, {{DNNL_ARG_SRC, dst_mem},
+    relu_bw.execute(stream_, {{DNNL_ARG_DST, dst_mem},
                               {DNNL_ARG_DIFF_DST, diff_dst_mem},
                               {DNNL_ARG_DIFF_SRC, src_mem.bwd}});
   });

@@ -50,3 +50,7 @@ _deps
 *.exe
 *.out
 *.app
+
+.venv/
+test_data/
+.DS_Store

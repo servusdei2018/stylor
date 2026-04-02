@@ -14,6 +14,8 @@ int main(int argc, char **argv) {
   commands::register_infer(app);
   commands::register_train(app);
 
+  app.require_subcommand(1);
+
   CLI11_PARSE(app, argc, argv);
 
   return 0;
