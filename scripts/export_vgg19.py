@@ -1,8 +1,22 @@
+"""
+Script to export the VGG-19 model weights from PyTorch to a binary file.
+
+This binary file is then loaded by the C++ application for style transfer.
+"""
 import struct
 import torch
 import torchvision.models as models
 
 def export_vgg19_weights(output_path="vgg19.bin"):
+    """
+    Exports the VGG-19 feature extractor weights.
+
+    Downloads the pre-trained VGG-19 model from PyTorch and extracts bounds for the Conv2d layers.
+    It writes the weights and biases out in a binary format compatible with Stylor's `WeightLoader`.
+
+    Args:
+        output_path (str): The filename to write the `.bin` weights to.
+    """
     print("Downloading VGG-19 from PyTorch...")
     vgg19 = models.vgg19(weights=models.VGG19_Weights.IMAGENET1K_V1)
     

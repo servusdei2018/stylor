@@ -102,7 +102,8 @@ TEST(Vgg19Test, ForwardBeforeLoadThrows) {
   Vgg19 net(engine);
   Image img = black_image();
   Tensor input = preprocess_image(img, engine);
-  EXPECT_THROW(net.forward(input), std::logic_error);
+  dnnl::stream stream(engine);
+  EXPECT_THROW(net.forward(input, stream), std::logic_error);
 }
 
 TEST(Vgg19Test, GetFeatureMapBeforeForwardThrows) {
@@ -122,7 +123,8 @@ TEST(Vgg19Test, ForwardOutputShapes) {
 
   Image img = black_image(224, 224);
   Tensor input = preprocess_image(img, engine);
-  ASSERT_NO_THROW(net.forward(input));
+  dnnl::stream stream(engine);
+  ASSERT_NO_THROW(net.forward(input, stream));
 
   // Expected shapes: {1, channels, H, W} after respective pooling.
   struct Expected {
@@ -160,8 +162,9 @@ TEST(Vgg19Test, ForwardDeterminism) {
 
   Image img = black_image(224, 224);
   Tensor input = preprocess_image(img, engine);
+  dnnl::stream stream(engine);
 
-  net.forward(input);
+  net.forward(input, stream);
   const Tensor &fm1 = net.get_feature_map(VggLayer::relu4_2);
   const float *ptr1 = fm1.get_data();
   auto dims = fm1.get_dims();
@@ -169,7 +172,7 @@ TEST(Vgg19Test, ForwardDeterminism) {
       static_cast<std::size_t>(dims[0] * dims[1] * dims[2] * dims[3]);
   std::vector<float> snap1(ptr1, ptr1 + n);
 
-  net.forward(input);
+  net.forward(input, stream);
   const Tensor &fm2 = net.get_feature_map(VggLayer::relu4_2);
   const float *ptr2 = fm2.get_data();
   std::vector<float> snap2(ptr2, ptr2 + n);
@@ -186,6 +189,7 @@ TEST(Vgg19Test, ForwardWrongInputShapeThrows) {
 
   // Input with wrong spatial size.
   Tensor bad_input({1, 3, 128, 128}, engine);
-  EXPECT_THROW(net.forward(bad_input), std::invalid_argument);
+  dnnl::stream stream(engine);
+  EXPECT_THROW(net.forward(bad_input, stream), std::invalid_argument);
   fs::remove(bp);
 }

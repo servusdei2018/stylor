@@ -16,12 +16,12 @@ namespace stylor {
 /// Blobs are consumed sequentially; call has_next() before each read_next().
 class WeightLoader {
 public:
-  /// @brief Open a weight file for sequential reading.
+  /// @brief Opens a weight file for sequential reading.
   /// @param path Path to the `.bin` weight file.
   /// @throws std::runtime_error If the file cannot be opened.
   explicit WeightLoader(const std::string &path);
 
-  /// @brief Read the next blob into a caller-supplied buffer.
+  /// @brief Reads the next blob into a caller-supplied buffer.
   ///
   /// The blob's stored element count must equal @p count exactly; a mismatch
   /// indicates that the caller's expected network shape and the file are out of
@@ -33,10 +33,10 @@ public:
   /// @throws std::runtime_error If the stored count != @p count, or I/O fails.
   void read_next(float *dst, std::size_t count);
 
-  /// @brief Return true if at least one more blob can be read.
+  /// @brief Returns true if at least one more blob can be read.
   bool has_next() const;
 
-  /// @brief Return the total number of blobs successfully read so far.
+  /// @brief Returns the total number of blobs successfully read so far.
   std::size_t blobs_read() const;
 
 private:

@@ -9,33 +9,33 @@ namespace stylor {
 /// @brief Tensor class to wrap oneDNN memory objects.
 class Tensor {
 public:
-  /// @brief Construct a tensor with specific dimension sizes (e.g., {N, C, H,
+  /// @brief Constructs a tensor with specific dimension sizes (e.g., {N, C, H,
   /// W}) using a privately-owned CPU engine (device index 0).
   /// @param dims The sizes for each dimension.
   explicit Tensor(std::vector<dnnl::memory::dim> dims);
 
-  /// @brief Construct a tensor sharing an existing engine.
+  /// @brief Constructs a tensor sharing an existing engine.
   /// @param dims   The sizes for each dimension.
   /// @param engine An already-constructed oneDNN engine to use.
   Tensor(std::vector<dnnl::memory::dim> dims, const dnnl::engine &engine);
 
-  /// @brief Get the raw data pointer for read/write operations.
+  /// @brief Gets the raw data pointer for read/write operations.
   /// @return A pointer to the underlying float data array.
   float *get_data();
 
-  /// @brief Get the constant raw data pointer.
+  /// @brief Gets the constant raw data pointer.
   /// @return A constant pointer to the underlying float data array.
   const float *get_data() const;
 
-  /// @brief Get the dimensions of the tensor.
+  /// @brief Gets the dimensions of the tensor.
   /// @return The dimensions vector.
   std::vector<dnnl::memory::dim> get_dims() const;
 
-  /// @brief Get the underlying oneDNN memory object.
+  /// @brief Gets the underlying oneDNN memory object.
   /// @return The oneDNN memory object.
   dnnl::memory &get_memory();
 
-  /// @brief Get the constant underlying oneDNN memory object.
+  /// @brief Gets the constant underlying oneDNN memory object.
   /// @return The constant oneDNN memory object.
   const dnnl::memory &get_memory() const;
 

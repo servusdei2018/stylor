@@ -8,27 +8,35 @@
 
 namespace stylor {
 
+/// @brief Metadata for a tensor stored in a safetensors file.
 struct SafetensorInfo {
+  /// @brief The data type of the tensor (e.g., "F32").
   std::string dtype;
+  /// @brief The dimensions of the tensor.
   std::vector<int> shape;
+  /// @brief The byte offsets (start, end) of the tensor data within the file.
   std::size_t data_offsets[2];
 };
 
 /// @brief Reads pre-trained weight blobs from a `.safetensors` file.
 class SafetensorsLoader {
 public:
-  /// @brief Open a safetensors file.
+  /// @brief Opens a safetensors file.
   /// @param path Path to the `.safetensors` file.
   /// @throws std::runtime_error If the file cannot be opened or parsed.
   explicit SafetensorsLoader(const std::string &path);
 
-  /// @brief Check if a tensor exists.
+  /// @brief Checks if a tensor exists.
+  /// @param name The name of the tensor.
+  /// @return True if the tensor exists, false otherwise.
   bool has_tensor(const std::string &name) const;
 
-  /// @brief Get metadata for a tensor.
+  /// @brief Gets metadata for a tensor.
+  /// @param name The name of the tensor.
+  /// @return The metadata for the tensor.
   const SafetensorInfo &get_tensor_info(const std::string &name) const;
 
-  /// @brief Load tensor data into a caller-supplied buffer.
+  /// @brief Loads tensor data into a caller-supplied buffer.
   /// @param name  Tensor name.
   /// @param dst   Destination buffer; must be at least @p count floats.
   /// @param count Expected number of float elements in this blob.
@@ -45,14 +53,20 @@ private:
 /// @brief Writes tensors to a `.safetensors` file.
 class SafetensorsWriter {
 public:
+  /// @brief Constructs a SafetensorsWriter.
+  /// @param path Path to the output `.safetensors` file.
   explicit SafetensorsWriter(const std::string &path);
 
-  /// @brief Add a tensor to be written (data must remain valid until write() is
-  /// called).
+  /// @brief Adds a tensor to be written (data must remain valid until write()
+  /// is called).
+  /// @param name The name of the tensor.
+  /// @param shape The shape of the tensor.
+  /// @param data Pointer to the raw tensor data.
+  /// @param count The number of elements in the tensor.
   void add_tensor(const std::string &name, const std::vector<int> &shape,
                   const float *data, std::size_t count);
 
-  /// @brief Write out the file to disk.
+  /// @brief Writes out the file to disk.
   void write();
 
 private:

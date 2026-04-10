@@ -7,7 +7,7 @@
 
 namespace stylor {
 
-/// @brief Convert an 8-bit RGB Image into a normalised NCHW float Tensor.
+/// @brief Converts an 8-bit RGB Image into a normalised NCHW float Tensor.
 ///
 /// Applies the ImageNet per-channel mean subtraction used during VGG-19
 /// training (BGR order, Simonyan & Zisserman 2014):

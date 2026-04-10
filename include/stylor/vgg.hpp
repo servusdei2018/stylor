@@ -31,14 +31,14 @@ enum class VggLayer {
 /// Thread safety: none, use one instance per thread.
 class Vgg19 {
 public:
-  /// @brief Construct and compile the VGG-19 primitive graph.
+  /// @brief Constructs and compiles the VGG-19 primitive graph.
   /// @param engine  oneDNN CPU engine. The caller owns the engine lifetime.
   /// @param input_h Input image height (pixels, typically 224).
   /// @param input_w Input image width  (pixels, typically 224).
   explicit Vgg19(const dnnl::engine &engine, int input_h = 224,
                  int input_w = 224);
 
-  /// @brief Load pre-trained weights from a `.bin` file.
+  /// @brief Loads pre-trained weights from a `.bin` file.
   ///
   /// The file must contain exactly the 26 weight blobs for 13 conv layers
   /// (weight tensor + bias vector each), in network order.
@@ -47,19 +47,19 @@ public:
   /// @throws std::runtime_error On I/O error or blob count/size mismatch.
   void load_weights(const std::string &path);
 
-  /// @brief Execute a forward pass through the full VGG-19 graph.
+  /// @brief Executes a forward pass through the full VGG-19 graph.
   /// @param input Pre-processed NCHW float tensor {1, 3, H, W}.
   /// @throws std::logic_error If load_weights() has not been called yet.
   /// @throws std::invalid_argument If @p input dimensions do not match.
   void forward(const Tensor &input, dnnl::stream &stream);
 
-  /// @brief Retrieve a cached intermediate activation.
+  /// @brief Retrieves a cached intermediate activation.
   /// @param layer  Which layer's output to retrieve.
   /// @return Const reference to the cached feature-map Tensor.
   /// @throws std::logic_error If forward() has not been called yet.
   const Tensor &get_feature_map(VggLayer layer) const;
 
-  /// @brief Execute a backward pass through the VGG-19 graph to compute the
+  /// @brief Executes a backward pass through the VGG-19 graph to compute the
   /// gradient w.r.t to the input image.
   /// @param loss_gradients Gradients from the loss functions at captured
   /// layers.
@@ -67,10 +67,10 @@ public:
   Tensor backward(const std::unordered_map<VggLayer, Tensor> &loss_gradients,
                   dnnl::stream &stream);
 
-  /// @brief Return true if load_weights() has completed successfully.
+  /// @brief Returns true if load_weights() has completed successfully.
   bool weights_loaded() const noexcept;
 
-  /// @brief Return true if at least one forward() pass has completed.
+  /// @brief Returns true if at least one forward() pass has completed.
   bool forward_done() const noexcept;
 
 private:

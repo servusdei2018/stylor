@@ -10,7 +10,9 @@ namespace stylor {
 /// @brief Result of a loss computation, containing the scalar loss and an
 /// optional gradient tensor.
 struct LossResult {
+  /// @brief The computed scalar loss value.
   float value;
+  /// @brief The optional gradient backpropagated with respect to the input.
   std::optional<Tensor> gradient;
 };
 

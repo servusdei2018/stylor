@@ -130,22 +130,32 @@ LossResult compute_tv_loss(const Tensor &image, bool compute_grad,
     std::memset((*grad).get_data(), 0, C * H * W * 4);
   }
 
+  float *grad_ptr = compute_grad ? (*grad).get_data() : nullptr;
+
   for (std::size_t c = 0; c < static_cast<std::size_t>(C); ++c) {
+    // Vertical differences (along H)
     for (std::size_t h = 0; h < static_cast<std::size_t>(H - 1); ++h) {
-      for (std::size_t w = 0; w < static_cast<std::size_t>(W - 1); ++w) {
+      for (std::size_t w = 0; w < static_cast<std::size_t>(W); ++w) {
         std::size_t i = c * H * W + h * W + w;
         std::size_t i_h = c * H * W + (h + 1) * W + w;
-        std::size_t i_w = c * H * W + h * W + (w + 1);
-
-        float dh = data[i] - data[i_h];
-        float dw = data[i] - data[i_w];
-        loss += dh * dh + dw * dw;
-
+        float d = data[i] - data[i_h];
+        loss += d * d;
         if (compute_grad) {
-          float *g = (*grad).get_data();
-          g[i] += 2.0f * (dh + dw);
-          g[i_h] -= 2.0f * dh;
-          g[i_w] -= 2.0f * dw;
+          grad_ptr[i] += 2.0f * d;
+          grad_ptr[i_h] -= 2.0f * d;
+        }
+      }
+    }
+    // Horizontal differences (along W)
+    for (std::size_t h = 0; h < static_cast<std::size_t>(H); ++h) {
+      for (std::size_t w = 0; w < static_cast<std::size_t>(W - 1); ++w) {
+        std::size_t i = c * H * W + h * W + w;
+        std::size_t i_w = c * H * W + h * W + (w + 1);
+        float d = data[i] - data[i_w];
+        loss += d * d;
+        if (compute_grad) {
+          grad_ptr[i] += 2.0f * d;
+          grad_ptr[i_w] -= 2.0f * d;
         }
       }
     }

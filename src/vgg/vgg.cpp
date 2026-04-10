@@ -182,6 +182,14 @@ void Vgg19::forward(const Tensor &input, dnnl::stream &stream) {
   if (!weights_loaded_)
     throw std::logic_error("Vgg19::forward: call load_weights() first");
 
+  {
+    auto dims = input.get_dims();
+    if (dims.size() != 4 || dims[2] != input_h_ || dims[3] != input_w_)
+      throw std::invalid_argument(
+          "Vgg19::forward: input spatial size does not match network "
+          "dimensions");
+  }
+
   dnnl::reorder(input.get_memory(), conv_layers_.front().src_mem)
       .execute(stream, {{DNNL_ARG_FROM, input.get_memory()},
                         {DNNL_ARG_TO, conv_layers_.front().src_mem}});

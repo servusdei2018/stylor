@@ -17,28 +17,28 @@ namespace stylor {
 /// Normalization.
 class TransformNetwork {
 public:
-  /// @brief Construct the network graph.
+  /// @brief Constructs the network graph.
   /// @param engine oneDNN engine.
   /// @param input_h Expected input height.
   /// @param input_w Expected input width.
   explicit TransformNetwork(const dnnl::engine &engine, int input_h = 256,
                             int input_w = 256);
 
-  /// @brief Load weights from a safetensors file.
+  /// @brief Loads weights from a safetensors file.
   void load_weights(const std::string &path);
 
-  /// @brief Save weights to a safetensors file.
+  /// @brief Saves weights to a safetensors file.
   void save_weights(const std::string &path) const;
 
-  /// @brief Execute a forward pass.
+  /// @brief Executes a forward pass.
   /// @param input Pre-processed Float32 NCHW tensor {1, 3, H, W}.
   void forward(const Tensor &input);
 
-  /// @brief Execute a backward pass to compute gradients.
+  /// @brief Executes a backward pass to compute gradients.
   /// @param grad_output The backward gradient from the VGG loss.
   void backward(const Tensor &grad_output);
 
-  /// @brief Get the generated output tensor.
+  /// @brief Gets the generated output tensor.
   const Tensor &get_output() const;
 
   // Memory chunks to back the learned parameter weights.
@@ -48,7 +48,7 @@ public:
     dnnl::memory diff_mem; // Gradient for optimization
   };
 
-  /// @brief Get the parameters of the network.
+  /// @brief Gets the parameters of the network.
   std::unordered_map<std::string, ParamDescriptor> &get_parameters() {
     return parameters_;
   }
