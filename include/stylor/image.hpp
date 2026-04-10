@@ -33,6 +33,18 @@ Image load_image(const std::string &path);
 /// unsupported.
 void save_image(const std::string &path, const Image &img);
 
+/// @brief Resizes an image to the given dimensions using bilinear resampling.
+///
+/// If the source image already has the requested dimensions the original Image
+/// is returned without allocation. Channel count is preserved.
+///
+/// @param img    Source image.
+/// @param width  Target width in pixels (must be > 0).
+/// @param height Target height in pixels (must be > 0).
+/// @return       A new Image with dimensions {width, height, img.channels}.
+/// @throws std::invalid_argument If width or height are non-positive.
+Image resize_image(const Image &img, int width, int height);
+
 } // namespace stylor
 
 #endif // STYLOR_IMAGE_HPP

@@ -7,6 +7,9 @@
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include "stb_image_write.h"
 
+#define STB_IMAGE_RESIZE_IMPLEMENTATION
+#include "stb_image_resize2.h"
+
 namespace stylor {
 
 Image load_image(const std::string &path) {
@@ -56,6 +59,28 @@ void save_image(const std::string &path, const Image &img) {
   if (!success) {
     throw std::runtime_error("Failed to save image to: " + path);
   }
+}
+
+Image resize_image(const Image &img, int width, int height) {
+  if (width <= 0 || height <= 0)
+    throw std::invalid_argument(
+        "resize_image: target dimensions must be positive (got " +
+        std::to_string(width) + "x" + std::to_string(height) + ")");
+
+  if (img.width == width && img.height == height)
+    return img; // no-op: already the right size
+
+  Image out;
+  out.width = width;
+  out.height = height;
+  out.channels = img.channels;
+  out.data.resize(static_cast<std::size_t>(width * height * img.channels));
+
+  stbir_resize_uint8_linear(img.data.data(), img.width, img.height, 0,
+                            out.data.data(), width, height, 0,
+                            static_cast<stbir_pixel_layout>(img.channels));
+
+  return out;
 }
 
 } // namespace stylor

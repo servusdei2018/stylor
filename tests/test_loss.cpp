@@ -84,7 +84,42 @@ TEST(LossTest, TotalVariationLoss) {
 
   // h differences: (3-1)^2 + (4-2)^2 = 4 + 4 = 8
   // w differences: (2-1)^2 + (4-3)^2 = 1 + 1 = 2
-  // total = 10
-  EXPECT_FLOAT_EQ(result.value, 10.0f);
+  // total raw = 10, normalized by 1/(C*H*W) = 1/(1*2*2) = 0.25
+  // expected = 10 * 0.25 = 2.5
+  EXPECT_FLOAT_EQ(result.value, 2.5f);
   ASSERT_TRUE(result.gradient.has_value());
+}
+
+// Verifies that the style loss feature-space gradient uses the correct
+// 1/(C*H*W) chain-rule factor (not 2/(C*H*W) which would double-count the
+// 2* already embedded in d_gram).
+TEST(LossTest, StyleLossGradient) {
+  auto engine = cpu_engine();
+  dnnl::stream stream(engine);
+
+  // C=1, H=1, W=1
+  // Feature map F = [[5.0]]  → shape {1,1,1,1}
+  Tensor F({1, 1, 1, 1}, engine);
+  F.get_data()[0] = 5.0f;
+
+  // Gram(F) = (1/CHW) * F*F^T = (1/1) * 25 = 25
+  auto gen_gram = compute_gram_matrix(F, engine, stream);
+  EXPECT_FLOAT_EQ(gen_gram.get_data()[0], 25.0f);
+
+  // Style target Gram = 0 (so the diff is 25).
+  Tensor tgt_gram({1, 1, 1, 1}, engine);
+  tgt_gram.get_data()[0] = 0.0f;
+
+  auto result = compute_style_loss(gen_gram, tgt_gram, F, true, engine, stream);
+
+  // Loss = normalize * diff^2  where normalize = 1/(C*C) = 1
+  // loss = 1 * (25-0)^2 = 625
+  EXPECT_FLOAT_EQ(result.value, 625.0f);
+  ASSERT_TRUE(result.gradient.has_value());
+
+  // d_gram = 2 * diff * normalize = 2 * 25 * 1 = 50
+  // dL/dF[0,0] = d_gram[0,0] * F[0,0] * (1/(C*HW))
+  //            = 50 * 5 * (1/1) = 250
+  const float *grad = result.gradient.value().get_data();
+  EXPECT_FLOAT_EQ(grad[0], 250.0f);
 }

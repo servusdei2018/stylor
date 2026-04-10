@@ -21,20 +21,11 @@ void handle_infer(const std::string &model, const std::string &input,
   int process_w = (image_size > 0) ? image_size : input_img.width;
   int process_h = (image_size > 0) ? image_size : input_img.height;
 
-  if (image_size <= 0) {
-    // For now, if no size specified, use the exact dimensions of the image.
-    // Make sure they are multiple of 4 or 8 due to downsampling in network.
-    process_w = (input_img.width / 4) * 4;
-    process_h = (input_img.height / 4) * 4;
-    if (process_w != input_img.width || process_h != input_img.height) {
-      std::cout << "Adjusted image size to " << process_w << "x" << process_h
-                << " to support downsampling.\n";
-      // We can't actually resize easily without STB, but the model needs
-      // matching dimensions. Since we don't have an explicit resize function in
-      // image.hpp, we will just pass the original image and potentially crash
-      // if dimensions aren't supported. The best approach is to let
-      // preprocess_image handle it, and use its output dimensions.
-    }
+  if (input_img.width != process_w || input_img.height != process_h) {
+    std::cerr << "Warning: input image (" << input_img.width << "x"
+              << input_img.height << ") resized to " << process_w << "x"
+              << process_h << " for inference.\n";
+    input_img = stylor::resize_image(input_img, process_w, process_h);
   }
 
   // Preprocess returns NCHW Tensor

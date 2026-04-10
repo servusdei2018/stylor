@@ -95,18 +95,21 @@ LossResult compute_style_loss(const Tensor &generated_gram,
     const float *f_ptr = generated_features.get_data();
     float *df_ptr = (*grad).get_data();
 
-    // Manual dL/dF = dL/dG * F
+    // dL/dF via chain rule through the Gram forward pass.
+    //
+    // Forward:  G[c1,c2] = (1/C·H·W) · Σ_hw F[c1,hw] · F[c2,hw]
+    // d_gram_ptr already holds  dL/dG[c1,c2] = 2·diff·(1/C²)
+    // (the factor of 2 from the MSE derivative is already embedded in d_gram).
+    //
+    // Chain rule: dL/dF[c1,hw] = Σ_c2  dL/dG[c1,c2] · (1/C·H·W) · F[c2,hw]
+    //                           = (1/C·H·W) · Σ_c2  d_gram[c1,c2] · F[c2,hw]
     for (std::size_t c1 = 0; c1 < static_cast<std::size_t>(C); ++c1) {
       for (std::size_t hw = 0; hw < static_cast<std::size_t>(HW); ++hw) {
         float sum = 0.0f;
         for (std::size_t c2 = 0; c2 < static_cast<std::size_t>(C); ++c2) {
           sum += d_gram_ptr[c1 * C + c2] * f_ptr[c2 * HW + hw];
         }
-        // Gram forward pass had a 1/(CHW) scale. dG/dF has a 2/(CHW) scale?
-        // Let's be consistent. Forward: G = (1/CHW) * F * F^T.
-        // dG/dF = (1/CHW) * (F*dF^T + dF*F^T).
-        // For dL/dF = dL/dG * (1/CHW) * 2 * F
-        df_ptr[c1 * HW + hw] = sum * (2.0f / static_cast<float>(C * HW));
+        df_ptr[c1 * HW + hw] = sum * (1.0f / static_cast<float>(C * HW));
       }
     }
   }
@@ -124,6 +127,10 @@ LossResult compute_tv_loss(const Tensor &image, bool compute_grad,
   const float *data = image.get_data();
   float loss = 0.0f;
 
+  // Normalise by total elements so TV loss is comparable in magnitude to the
+  // content loss (which is also normalised by 1/(C·H·W)).
+  const float normalize = 1.0f / static_cast<float>(C * H * W);
+
   std::optional<Tensor> grad;
   if (compute_grad) {
     grad.emplace(dims, engine);
@@ -139,10 +146,10 @@ LossResult compute_tv_loss(const Tensor &image, bool compute_grad,
         std::size_t i = c * H * W + h * W + w;
         std::size_t i_h = c * H * W + (h + 1) * W + w;
         float d = data[i] - data[i_h];
-        loss += d * d;
+        loss += d * d * normalize;
         if (compute_grad) {
-          grad_ptr[i] += 2.0f * d;
-          grad_ptr[i_h] -= 2.0f * d;
+          grad_ptr[i] += 2.0f * d * normalize;
+          grad_ptr[i_h] -= 2.0f * d * normalize;
         }
       }
     }
@@ -152,10 +159,10 @@ LossResult compute_tv_loss(const Tensor &image, bool compute_grad,
         std::size_t i = c * H * W + h * W + w;
         std::size_t i_w = c * H * W + h * W + (w + 1);
         float d = data[i] - data[i_w];
-        loss += d * d;
+        loss += d * d * normalize;
         if (compute_grad) {
-          grad_ptr[i] += 2.0f * d;
-          grad_ptr[i_w] -= 2.0f * d;
+          grad_ptr[i] += 2.0f * d * normalize;
+          grad_ptr[i_w] -= 2.0f * d * normalize;
         }
       }
     }

@@ -63,6 +63,13 @@ void handle_train(const std::string &model, const std::string &style,
 
   std::cout << "Preprocessing style image...\n";
   stylor::Image style_img = stylor::load_image(style);
+  if (style_img.width != image_size || style_img.height != image_size) {
+    std::cerr << "Warning: style image (" << style_img.width << "x"
+              << style_img.height << ") does not match --image-size ("
+              << image_size << "x" << image_size
+              << "). Resizing automatically.\n";
+    style_img = stylor::resize_image(style_img, image_size, image_size);
+  }
   stylor::Tensor style_tensor = stylor::preprocess_image(style_img, engine);
 
   std::cout << "Computing style targets...\n";
@@ -102,21 +109,17 @@ void handle_train(const std::string &model, const std::string &style,
     for (const auto &c_path : content_images) {
       try {
         stylor::Image content_img = stylor::load_image(c_path);
-        // Assuming content dimensions match expected input_h, input_w of
-        // network. For robustness, one would resize here. Our project is fixed
-        // to exactly image_size for all inputs currently.
+        // Resize to training resolution if the image does not already match.
+        if (content_img.width != image_size ||
+            content_img.height != image_size) {
+          std::cerr << "Warning: " << c_path << " (" << content_img.width << "x"
+                    << content_img.height << ") resized to " << image_size
+                    << "x" << image_size << ".\n";
+          content_img =
+              stylor::resize_image(content_img, image_size, image_size);
+        }
         stylor::Tensor content_tensor =
             stylor::preprocess_image(content_img, engine);
-
-        // Check if dimensions match what VGG expects
-        auto dims = content_tensor.get_dims();
-        if (dims[2] != image_size || dims[3] != image_size) {
-          std::cerr << "Skipping " << c_path
-                    << ": image dimension mismatch. Expected " << image_size
-                    << "x" << image_size << " but got " << dims[2] << "x"
-                    << dims[3] << "\n";
-          continue;
-        }
 
         // Forward content image through VGG to get content target
         vgg.forward(content_tensor, stream);
@@ -168,7 +171,9 @@ void handle_train(const std::string &model, const std::string &style,
                                                    engine, stream);
           total_s_loss += s_loss.value;
           if (s_loss.gradient) {
-            scale_tensor(*s_loss.gradient, beta / 5.0f);
+            // Scale by beta: consistent with current_s_loss = beta *
+            // total_s_loss.
+            scale_tensor(*s_loss.gradient, beta);
             loss_gradients.emplace(l, std::move(*s_loss.gradient));
           }
         }
