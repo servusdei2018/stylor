@@ -144,8 +144,6 @@ void TransformNetwork::forward(const Tensor &input) {
   }
   stream_.wait();
 
-  stream_.wait();
-
   // Extract from output layer's fwd_mem using reorder
   dnnl::reorder(output_mempair_.fwd, output_tensor_->get_memory())
       .execute(stream_, {{DNNL_ARG_FROM, output_mempair_.fwd},

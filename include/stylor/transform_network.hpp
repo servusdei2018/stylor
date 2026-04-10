@@ -14,6 +14,9 @@ namespace stylor {
 /// @brief Feed-forward Image Transform Network for Fast Neural Style Transfer.
 ///
 /// Implements the architecture from Johnson et al. (2016) with Instance
+/// Normalization.  Instance Normalization is realized via the oneDNN
+/// group_normalization primitive with num_groups == channels; each group
+/// then contains exactly one channel, which is the definition of Instance
 /// Normalization.
 class TransformNetwork {
 public:

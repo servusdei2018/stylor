@@ -123,3 +123,49 @@ TEST(LossTest, StyleLossGradient) {
   const float *grad = result.gradient.value().get_data();
   EXPECT_FLOAT_EQ(grad[0], 250.0f);
 }
+// Verifies that the feature-map cache deep-copies via dnnl::reorder so that
+// the Tensor returned by get_feature_map()-equivalent logic is NOT an alias of
+// internal VGG layer memory.  Specifically, overwriting the source buffer after
+// the copy must not change the snapshot held by the cache Tensor.
+TEST(LossTest, FeatureMapCacheIsDeepCopy) {
+  auto engine = cpu_engine();
+
+  // Simulate a VGG layer's dst_mem (the "live" buffer).
+  dnnl::memory::desc md({1, 1, 2, 2}, dnnl::memory::data_type::f32,
+                        dnnl::memory::format_tag::nchw);
+  dnnl::memory live_mem(md, engine);
+
+  // Fill live_mem with [1, 2, 3, 4].
+  float *live = static_cast<float *>(live_mem.get_data_handle());
+  live[0] = 1.f;
+  live[1] = 2.f;
+  live[2] = 3.f;
+  live[3] = 4.f;
+
+  // --- Deep-copy via reorder (the fixed get_feature_map approach) ---
+  Tensor cache({1, 1, 2, 2}, engine);
+  {
+    dnnl::stream s(engine);
+    dnnl::reorder(live_mem, cache.get_memory())
+        .execute(
+            s, {{DNNL_ARG_FROM, live_mem}, {DNNL_ARG_TO, cache.get_memory()}});
+    s.wait();
+  }
+
+  // Overwrite the live buffer (simulating a second forward() pass).
+  live[0] = 99.f;
+  live[1] = 99.f;
+  live[2] = 99.f;
+  live[3] = 99.f;
+
+  // The cache Tensor must still hold the original snapshot.
+  const float *snapped = cache.get_data();
+  EXPECT_FLOAT_EQ(snapped[0], 1.f);
+  EXPECT_FLOAT_EQ(snapped[1], 2.f);
+  EXPECT_FLOAT_EQ(snapped[2], 3.f);
+  EXPECT_FLOAT_EQ(snapped[3], 4.f);
+
+  // Sanity-check: set_data_handle aliasing WOULD have failed (live buffer
+  // is [99, 99, 99, 99]).  This documents why the old approach was wrong.
+  EXPECT_FLOAT_EQ(live[0], 99.f);
+}

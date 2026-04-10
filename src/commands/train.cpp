@@ -5,8 +5,10 @@
 #include "stylor/preprocessing.hpp"
 #include "stylor/transform_network.hpp"
 #include "stylor/vgg.hpp"
+#include <cmath>
 #include <filesystem>
 #include <iostream>
+#include <string>
 #include <vector>
 
 namespace fs = std::filesystem;
@@ -34,12 +36,52 @@ static void add_tensors(stylor::Tensor &dst, const stylor::Tensor &src) {
   }
 }
 
+/// @brief Clips all gradient buffers in @p params so their global L2 norm
+/// does not exceed @p max_norm.  If @p max_norm is 0 the function is a no-op.
+/// @return The pre-clip global gradient norm.
+static float clip_grad_norm(
+    std::unordered_map<std::string, stylor::TransformNetwork::ParamDescriptor>
+        &params,
+    float max_norm) {
+  if (max_norm <= 0.0f)
+    return 0.0f;
+
+  double total_sq = 0.0;
+  for (auto &[name, desc] : params) {
+    if (!desc.diff_mem)
+      continue;
+    const float *g =
+        static_cast<const float *>(desc.diff_mem.get_data_handle());
+    size_t n = 1;
+    for (int d : desc.shape)
+      n *= d;
+    for (size_t i = 0; i < n; ++i)
+      total_sq += static_cast<double>(g[i]) * g[i];
+  }
+  float total_norm = static_cast<float>(std::sqrt(total_sq));
+
+  if (total_norm > max_norm) {
+    float scale = max_norm / total_norm;
+    for (auto &[name, desc] : params) {
+      if (!desc.diff_mem)
+        continue;
+      float *g = static_cast<float *>(desc.diff_mem.get_data_handle());
+      size_t n = 1;
+      for (int d : desc.shape)
+        n *= d;
+      for (size_t i = 0; i < n; ++i)
+        g[i] *= scale;
+    }
+  }
+  return total_norm;
+}
+
 void handle_train(const std::string &model, const std::string &style,
                   const std::string &content_path,
                   const std::string &vgg_weights, float alpha, float beta,
-                  float tv_weight, int epochs, int batch_size,
-                  float learning_rate, int image_size,
-                  int checkpoint_interval) {
+                  float tv_weight, int epochs, float learning_rate,
+                  int image_size, int checkpoint_interval,
+                  float max_grad_norm) {
   std::cout << "Training model: " << model << '\n'
             << "Style image: " << style << '\n'
             << "Content path: " << content_path << '\n'
@@ -47,7 +89,10 @@ void handle_train(const std::string &model, const std::string &style,
             << "Alpha: " << alpha << ", Beta: " << beta
             << ", TV weight: " << tv_weight << '\n'
             << "Image size: " << image_size << "x" << image_size
-            << ", LR: " << learning_rate << '\n';
+            << ", LR: " << learning_rate << ", Max grad norm: "
+            << (max_grad_norm > 0.0f ? std::to_string(max_grad_norm)
+                                     : "disabled")
+            << '\n';
 
   dnnl::engine engine(dnnl::engine::kind::cpu, 0);
   dnnl::stream stream(engine);
@@ -200,6 +245,10 @@ void handle_train(const std::string &model, const std::string &style,
 
         // TransformNetwork Backward & Step
         net.backward(vgg_grad);
+
+        float grad_norm = clip_grad_norm(net.get_parameters(), max_grad_norm);
+        (void)grad_norm; // available for diagnostic logging if needed
+
         optimizer.step(net.get_parameters());
 
         std::cout << "Iter " << iter << " | Loss: " << total_loss
@@ -259,9 +308,6 @@ void register_train(CLI::App &app) {
   train_cmd->add_option("--epochs", "Number of training epochs (default: 2)")
       ->default_val(2)
       ->check(CLI::PositiveNumber);
-  train_cmd->add_option("--batch-size", "Batch size (default: 1)")
-      ->default_val(1)
-      ->check(CLI::PositiveNumber);
   train_cmd->add_option("--lr", "Learning rate (default: 1e-3)")
       ->default_val(1e-3f)
       ->check(CLI::PositiveNumber);
@@ -274,22 +320,28 @@ void register_train(CLI::App &app) {
                    "Iterations between checkpoints (default: 2000)")
       ->default_val(2000)
       ->check(CLI::PositiveNumber);
+  train_cmd
+      ->add_option("--max-grad-norm",
+                   "Global L2 gradient norm clipping threshold (0 = disabled, "
+                   "default: 10.0)")
+      ->default_val(10.0f)
+      ->check(CLI::NonNegativeNumber);
 
   train_cmd->callback([model, style, content, vgg_weights, train_cmd]() {
-    // We retrieve the options dynamically inside the callback
     float alpha_v = train_cmd->get_option("--alpha")->as<float>();
     float beta_v = train_cmd->get_option("--beta")->as<float>();
     float tv_weight_v = train_cmd->get_option("--tv-weight")->as<float>();
     int epochs_v = train_cmd->get_option("--epochs")->as<int>();
-    int batch_size_v = train_cmd->get_option("--batch-size")->as<int>();
     float lr_v = train_cmd->get_option("--lr")->as<float>();
     int image_size_v = train_cmd->get_option("--image-size")->as<int>();
     int interval_v = train_cmd->get_option("--checkpoint-interval")->as<int>();
+    float max_grad_norm_v =
+        train_cmd->get_option("--max-grad-norm")->as<float>();
 
     handle_train(model->as<std::string>(), style->as<std::string>(),
                  content->as<std::string>(), vgg_weights->as<std::string>(),
-                 alpha_v, beta_v, tv_weight_v, epochs_v, batch_size_v, lr_v,
-                 image_size_v, interval_v);
+                 alpha_v, beta_v, tv_weight_v, epochs_v, lr_v, image_size_v,
+                 interval_v, max_grad_norm_v);
   });
 }
 

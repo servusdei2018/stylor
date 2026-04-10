@@ -220,14 +220,20 @@ const Tensor &Vgg19::get_feature_map(VggLayer layer) const {
   if (!forward_done_)
     throw std::logic_error("Vgg19::get_feature_map: call forward() first");
   int key = layer_key(layer);
+  auto &mem = feature_map_mems_.at(key);
+  auto dims = mem.get_desc().get_dims();
+  // Lazily allocate the cache Tensor (owns its own buffer).
   if (feature_map_cache_.find(key) == feature_map_cache_.end()) {
-    auto &mem = feature_map_mems_.at(key);
-    auto dims = mem.get_desc().get_dims();
     feature_map_cache_.emplace(key,
                                Tensor({dims.begin(), dims.end()}, engine_));
-    feature_map_cache_.at(key).get_memory().set_data_handle(
-        mem.get_data_handle());
   }
+  // Deep-copy on every call so the cache is never an alias of internal
+  // VGG layer buffers. This decouples callers from subsequent forward() calls.
+  dnnl::stream s(engine_);
+  dnnl::reorder(mem, feature_map_cache_.at(key).get_memory())
+      .execute(s, {{DNNL_ARG_FROM, mem},
+                   {DNNL_ARG_TO, feature_map_cache_.at(key).get_memory()}});
+  s.wait();
   return feature_map_cache_.at(key);
 }
 
