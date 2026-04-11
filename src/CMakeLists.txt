@@ -1,25 +1,5 @@
 include(FetchContent)
 
-add_library(stylor STATIC
-    stylor.cpp
-    image.cpp
-    tensor.cpp
-    loss.cpp
-    optimizer.cpp
-    vgg/vgg.cpp
-    vgg/preprocessing.cpp
-    vgg/weight_loader.cpp
-    safetensors_io.cpp
-    transform_network.cpp
-)
-
-target_include_directories(stylor PUBLIC
-    ${stb_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR}/include
-)
-
-target_link_libraries(stylor PUBLIC dnnl nlohmann_json::nlohmann_json)
-
 FetchContent_Declare(
     cli11_proj
     GIT_REPOSITORY https://github.com/CLIUtils/CLI11.git
@@ -33,8 +13,43 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(json)
 
-file(GLOB_RECURSE SOURCES ${CMAKE_SOURCE_DIR}/src/*.cpp)
+add_library(stylor STATIC
+    stylor.cpp
+    image.cpp
+    tensor.cpp
+    loss.cpp
+    optimizer.cpp
+    vgg/vgg.cpp
+    vgg/preprocessing.cpp
+    vgg/weight_loader.cpp
+    safetensors_io.cpp
+    transform_network.cpp
+)
 
-add_executable(stylor_cli ${SOURCES})
-target_link_libraries(stylor_cli PRIVATE stylor CLI11::CLI11)
+target_include_directories(stylor 
+    PUBLIC
+        ${CMAKE_SOURCE_DIR}/include
+    PRIVATE
+        ${stb_SOURCE_DIR}
+)
+
+target_link_libraries(stylor 
+    PUBLIC 
+        dnnl
+    PRIVATE 
+        nlohmann_json::nlohmann_json
+)
+
+add_executable(stylor_cli 
+    main.cpp
+    commands/infer.cpp
+    commands/train.cpp
+)
+
+target_link_libraries(stylor_cli 
+    PRIVATE 
+        stylor 
+        CLI11::CLI11
+)
+
 set_target_properties(stylor_cli PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)

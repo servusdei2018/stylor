@@ -16,7 +16,7 @@ add_executable(test_stylor
     test_weight_loader.cpp
     test_transform_network.cpp
 )
-target_link_libraries(test_stylor PRIVATE stylor gtest gtest_main dnnl nlohmann_json::nlohmann_json)
+target_link_libraries(test_stylor PRIVATE stylor gtest gtest_main)
 set_target_properties(test_stylor PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/bin)
 
 add_test(NAME StylorTest COMMAND $<TARGET_FILE:test_stylor>)
