@@ -15,7 +15,8 @@ namespace {
 dnnl::engine cpu_engine() { return dnnl::engine(dnnl::engine::kind::cpu, 0); }
 
 // Write a zero-valued .bin file that satisfies every weight/bias blob for
-// VGG-19: 13 conv layers, each with a weight tensor and a bias vector.
+// VGG-19: 13 conv layers. (Note: Vgg19 only parses the first 10, up to
+// relu5_1).
 //
 // Blob order (VGG-19, all 3×3 convolutions):
 //   Block 1:  [64×3×3×3, 64] [64×64×3×3, 64]

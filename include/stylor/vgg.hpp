@@ -23,8 +23,9 @@ enum class VggLayer {
 
 /// @brief VGG-19 feature extractor backed by oneDNN primitives.
 ///
-/// Constructs the full 13-convolution VGG-19 graph on the given engine during
-/// construction.  Weights must be loaded via load_weights() before calling
+/// Constructs a truncated 10-convolution VGG-19 graph (up to relu5_1) on the
+/// given engine during construction. Weights must be loaded via load_weights()
+/// before calling
 /// forward().  After a successful forward pass, intermediate activations for
 /// the six named layers are available through get_feature_map().
 ///
@@ -40,8 +41,9 @@ public:
 
   /// @brief Loads pre-trained weights from a `.bin` file.
   ///
-  /// The file must contain exactly the 26 weight blobs for 13 conv layers
-  /// (weight tensor + bias vector each), in network order.
+  /// The file should contain the weight blobs for the full network, but we only
+  /// parse the first 20 weight blobs for the 10 conv layers used (up to
+  /// relu5_1).
   ///
   /// @param path Path to the `.bin` weight file.
   /// @throws std::runtime_error On I/O error or blob count/size mismatch.

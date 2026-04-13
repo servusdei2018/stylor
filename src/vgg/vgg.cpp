@@ -40,13 +40,8 @@ Vgg19::Vgg19(const dnnl::engine &engine, int input_h, int input_w)
       {layer_key(VggLayer::relu4_1), layer_key(VggLayer::relu4_2), -1, -1});
   build_pool(cur_mem);
 
-  build_block(5,
-              {{512, 512, 3, 1, 1},
-               {512, 512, 3, 1, 1},
-               {512, 512, 3, 1, 1},
-               {512, 512, 3, 1, 1}},
-              cur_mem, {layer_key(VggLayer::relu5_1), -1, -1, -1});
-  build_pool(cur_mem);
+  build_block(5, {{512, 512, 3, 1, 1}}, cur_mem,
+              {layer_key(VggLayer::relu5_1)});
 }
 
 dnnl::memory Vgg19::make_weights_mem(int oc, int ic, int kh, int kw) {
