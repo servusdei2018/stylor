@@ -64,18 +64,20 @@ TEST(PreprocessingTest, MeanSubtraction) {
   EXPECT_NEAR(data[2], 124.0f - 123.680f, 1.0f); // R channel ~0
 }
 
-TEST(PreprocessingTest, ChannelOrderBGR) {
+TEST(PreprocessingTest, ChannelOrderRGB) {
   // Pure red image (R=255, G=0, B=0).
-  // After BGR swap: channel 0 (B) ≈ -103.939, channel 1 (G) ≈ -116.779,
-  //                  channel 2 (R) ≈ 255 - 123.680 = 131.320
+  // torchvision VGG19 expects RGB input. After mean subtraction:
+  //   plane 0 (R): 255 - 123.680 =  131.320
+  //   plane 1 (G):   0 - 116.779 = -116.779
+  //   plane 2 (B):   0 - 103.939 = -103.939
   auto engine = cpu_engine();
   Image img = make_rgb_image(1, 1, /*R=*/255, /*G=*/0, /*B=*/0);
   Tensor t = preprocess_image(img, engine);
 
   const float *data = t.get_data();
-  EXPECT_NEAR(data[0], -103.939f, 0.5f); // B channel
-  EXPECT_NEAR(data[1], -116.779f, 0.5f); // G channel
-  EXPECT_NEAR(data[2], 131.320f, 0.5f);  // R channel
+  EXPECT_NEAR(data[0], 131.320f, 0.5f);  // R channel (plane 0)
+  EXPECT_NEAR(data[1], -116.779f, 0.5f); // G channel (plane 1)
+  EXPECT_NEAR(data[2], -103.939f, 0.5f); // B channel (plane 2)
 }
 
 TEST(PreprocessingTest, ZeroWidthThrows) {

@@ -13,25 +13,28 @@ void handle_infer(const std::string &model, const std::string &input,
             << ", output to " << output << '\n';
 
   dnnl::engine engine(dnnl::engine::kind::cpu, 0);
+  dnnl::stream stream(engine);
 
-  // Load the input image to get dimensions (or use override)
+  // Load the input image
   std::cout << "Loading input image...\n";
   stylor::Image input_img = stylor::load_image(input);
 
-  int process_w = (image_size > 0) ? image_size : input_img.width;
-  int process_h = (image_size > 0) ? image_size : input_img.height;
+  // Preprocess: u8/nhwc → f32/nchw, mean subtract. Always work in float space
+  // from here. The optional resize is done via oneDNN resampling (no uint8
+  // round-trip).
+  stylor::Tensor input_tensor =
+      stylor::preprocess_image(input_img, engine, stream);
 
-  if (input_img.width != process_w || input_img.height != process_h) {
+  if (image_size > 0 &&
+      (input_img.width != image_size || input_img.height != image_size)) {
     std::cerr << "Warning: input image (" << input_img.width << "x"
-              << input_img.height << ") resized to " << process_w << "x"
-              << process_h << " for inference.\n";
-    input_img = stylor::resize_image(input_img, process_w, process_h);
+              << input_img.height << ") resampled to " << image_size << "x"
+              << image_size << " for inference.\n";
+    input_tensor = stylor::resize_tensor(input_tensor, image_size, image_size,
+                                         engine, stream);
   }
 
-  // Preprocess returns NCHW Tensor
-  stylor::Tensor input_tensor = stylor::preprocess_image(input_img, engine);
   auto dims = input_tensor.get_dims(); // {N, C, H, W}
-
   int in_h = dims[2];
   int in_w = dims[3];
 
@@ -46,46 +49,9 @@ void handle_infer(const std::string &model, const std::string &input,
   net.forward(input_tensor);
 
   const stylor::Tensor &output_tensor = net.get_output();
-  const float *out_data = output_tensor.get_data();
-
-  // Post-process
   std::cout << "Post-processing output...\n";
-
-  // Output is NCHW, BGR
-  // We need to build HWC, RGB
-  int out_h = output_tensor.get_dims()[2];
-  int out_w = output_tensor.get_dims()[3];
-
-  stylor::Image out_img;
-  out_img.width = out_w;
-  out_img.height = out_h;
-  out_img.channels = 3;
-  out_img.data.resize(out_w * out_h * 3);
-
-  int channel_stride = out_h * out_w;
-
-  // Means subtracted during training: B: 103.939, G: 116.779, R: 123.680
-  const float MEANS[3] = {103.939f, 116.779f, 123.680f}; // B, G, R
-
-  for (int h = 0; h < out_h; ++h) {
-    for (int w = 0; w < out_w; ++w) {
-      int spatial_idx = h * out_w + w;
-
-      float b = out_data[0 * channel_stride + spatial_idx] + MEANS[0];
-      float g = out_data[1 * channel_stride + spatial_idx] + MEANS[1];
-      float r = out_data[2 * channel_stride + spatial_idx] + MEANS[2];
-
-      b = std::max(0.0f, std::min(255.0f, b));
-      g = std::max(0.0f, std::min(255.0f, g));
-      r = std::max(0.0f, std::min(255.0f, r));
-
-      int pixel_idx = (h * out_w + w) * 3;
-      out_img.data[pixel_idx + 0] =
-          static_cast<uint8_t>(r + 0.5f); // Swap BGR -> RGB
-      out_img.data[pixel_idx + 1] = static_cast<uint8_t>(g + 0.5f);
-      out_img.data[pixel_idx + 2] = static_cast<uint8_t>(b + 0.5f);
-    }
-  }
+  stylor::Image out_img =
+      stylor::postprocess_image(output_tensor, engine, stream);
 
   std::cout << "Saving stylized output...\n";
   stylor::save_image(output, out_img);

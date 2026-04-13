@@ -118,7 +118,8 @@ void handle_train(const std::string &model, const std::string &style,
               << "). Resizing automatically.\n";
     style_img = stylor::resize_image(style_img, image_size, image_size);
   }
-  stylor::Tensor style_tensor = stylor::preprocess_image(style_img, engine);
+  stylor::Tensor style_tensor =
+      stylor::preprocess_image(style_img, engine, stream);
 
   std::cout << "Computing style targets...\n";
   vgg.forward(style_tensor, stream);
@@ -167,7 +168,7 @@ void handle_train(const std::string &model, const std::string &style,
               stylor::resize_image(content_img, image_size, image_size);
         }
         stylor::Tensor content_tensor =
-            stylor::preprocess_image(content_img, engine);
+            stylor::preprocess_image(content_img, engine, stream);
 
         // Forward content image through VGG to get content target
         vgg.forward(content_tensor, stream);
