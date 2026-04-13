@@ -15,25 +15,26 @@ namespace fs = std::filesystem;
 
 namespace commands {
 
-static void scale_tensor(stylor::Tensor &t, float scale) {
-  float *data = t.get_data();
-  size_t size = 1;
-  for (auto d : t.get_dims())
-    size *= d;
-  for (size_t i = 0; i < size; ++i) {
-    data[i] *= scale;
-  }
+static void scale_tensor(stylor::Tensor &t, float scale,
+                         const dnnl::engine &engine, dnnl::stream &stream) {
+  auto pd = dnnl::eltwise_forward::primitive_desc(
+      engine, dnnl::prop_kind::forward_inference,
+      dnnl::algorithm::eltwise_linear, t.get_memory().get_desc(),
+      t.get_memory().get_desc(), scale, 0.0f);
+  dnnl::eltwise_forward(pd).execute(
+      stream, {{DNNL_ARG_SRC, t.get_memory()}, {DNNL_ARG_DST, t.get_memory()}});
+  stream.wait();
 }
 
-static void add_tensors(stylor::Tensor &dst, const stylor::Tensor &src) {
-  float *dst_data = dst.get_data();
-  const float *src_data = src.get_data();
-  size_t size = 1;
-  for (auto d : dst.get_dims())
-    size *= d;
-  for (size_t i = 0; i < size; ++i) {
-    dst_data[i] += src_data[i];
-  }
+static void add_tensors(stylor::Tensor &dst, const stylor::Tensor &src,
+                        const dnnl::engine &engine, dnnl::stream &stream) {
+  auto pd = dnnl::binary::primitive_desc(
+      engine, dnnl::algorithm::binary_add, src.get_memory().get_desc(),
+      dst.get_memory().get_desc(), dst.get_memory().get_desc());
+  dnnl::binary(pd).execute(stream, {{DNNL_ARG_SRC_0, src.get_memory()},
+                                    {DNNL_ARG_SRC_1, dst.get_memory()},
+                                    {DNNL_ARG_DST, dst.get_memory()}});
+  stream.wait();
 }
 
 /// @brief Clips all gradient buffers in @p params so their global L2 norm
@@ -55,6 +56,7 @@ static float clip_grad_norm(
     size_t n = 1;
     for (int d : desc.shape)
       n *= d;
+#pragma omp parallel for simd reduction(+ : total_sq)
     for (size_t i = 0; i < n; ++i)
       total_sq += static_cast<double>(g[i]) * g[i];
   }
@@ -69,6 +71,7 @@ static float clip_grad_norm(
       size_t n = 1;
       for (int d : desc.shape)
         n *= d;
+#pragma omp parallel for simd
       for (size_t i = 0; i < n; ++i)
         g[i] *= scale;
     }
@@ -201,7 +204,7 @@ void handle_train(const std::string &model, const std::string &style,
         total_loss += current_c_loss;
 
         if (c_loss.gradient) {
-          scale_tensor(*c_loss.gradient, alpha);
+          scale_tensor(*c_loss.gradient, alpha, engine, stream);
           loss_gradients.emplace(stylor::VggLayer::relu4_2,
                                  std::move(*c_loss.gradient));
         }
@@ -218,7 +221,7 @@ void handle_train(const std::string &model, const std::string &style,
           if (s_loss.gradient) {
             // Scale by beta: consistent with current_s_loss = beta *
             // total_s_loss.
-            scale_tensor(*s_loss.gradient, beta);
+            scale_tensor(*s_loss.gradient, beta, engine, stream);
             loss_gradients.emplace(l, std::move(*s_loss.gradient));
           }
         }
@@ -232,7 +235,7 @@ void handle_train(const std::string &model, const std::string &style,
         total_loss += current_tv_loss;
 
         if (tv_loss.gradient) {
-          scale_tensor(*tv_loss.gradient, tv_weight);
+          scale_tensor(*tv_loss.gradient, tv_weight, engine, stream);
         }
 
         // VGG Backward
@@ -240,7 +243,7 @@ void handle_train(const std::string &model, const std::string &style,
 
         // Add TV derivative
         if (tv_loss.gradient) {
-          add_tensors(vgg_grad, *tv_loss.gradient);
+          add_tensors(vgg_grad, *tv_loss.gradient, engine, stream);
         }
 
         // TransformNetwork Backward & Step
