@@ -6,18 +6,60 @@ Stylor is a high-performance [neural style transfer](https://en.wikipedia.org/wi
 
 ```bash
 cmake -B build -S .
-cmake --build build
+cd build && make -j$(sysctl -n hw.logicalcpu)
 ```
 
-### Pre-trained Weights
+### Data Preparation
 
-To train new style transfer models, you will need the pre-trained VGG-19 weights converted into Stylor's specific binary format. You can download the ready-to-use `vgg19.bin` file directly from our [GitHub releases](https://github.com/servusdei2018/stylor/releases).
+To train new models, you need an image dataset and the pre-trained VGG-19 weights.
 
-Alternatively, you can generate your own weights file using the included python script:
+#### Image Dataset
+Stylor uses image datasets, such as COCO, for training. You can download the COCO val2017 dataset for a quick start:
+
+```bash
+curl http://images.cocodataset.org/zips/val2017.zip -o val2017.zip
+unzip -q val2017.zip -d test_data/
+mv test_data/val2017 test_data/coco-val2017
+```
+
+#### Pre-trained VGG-19 Weights
+
+You will need the pre-trained VGG-19 weights converted into Stylor's specific binary format. You can download the ready-to-use `vgg19.bin` file directly from our [GitHub releases](https://github.com/servusdei2018/stylor/releases).
+
+Alternatively, you can generate your own weights file using the included python script. We recommend using `uv`:
 
 ```bash
 cd scripts && uv run export_vgg19.py
 ```
+
+## Usage
+
+### Training
+
+To train a new style transfer model, use the `train` command, providing the pre-trained VGG weights, an input style image, and your content image dataset directory:
+
+```bash
+./bin/stylor_cli train \
+    --model test_data/test_model.safetensors \
+    --style test_data/style.jpg \
+    --content test_data/coco-val2017/ \
+    --vgg-weights scripts/vgg19.bin \
+    --epochs 50 \
+    --image-size 256
+```
+
+### Inference
+
+Once you have a trained model, use the `infer` command to apply the style to new content images:
+
+```bash
+./bin/stylor_cli infer \
+    --model test_data/test_model.safetensors \
+    --input test_data/image.jpg \
+    --output test_data/stylized_50.jpg \
+    --image-size 256
+```
+
 
 ### Available Targets
 
