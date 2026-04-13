@@ -3,6 +3,7 @@
 #include "stylor/weight_loader.hpp"
 #include <cstring>
 #include <stdexcept>
+#include <unordered_set>
 
 namespace stylor {
 
@@ -13,22 +14,24 @@ Vgg19::Vgg19(const dnnl::engine &engine, int input_h, int input_w)
     : engine_(engine), input_h_(input_h), input_w_(input_w) {
 
   dnnl::memory cur_mem;
+  dnnl::memory cur_diff_mem;
 
-  build_block(1, {{3, 64, 3, 1, 1}, {64, 64, 3, 1, 1}}, cur_mem,
+  build_block(1, {{3, 64, 3, 1, 1}, {64, 64, 3, 1, 1}}, cur_mem, cur_diff_mem,
               {layer_key(VggLayer::relu1_1), -1});
-  build_pool(cur_mem);
+  build_pool(cur_mem, cur_diff_mem);
 
   build_block(2, {{64, 128, 3, 1, 1}, {128, 128, 3, 1, 1}}, cur_mem,
-              {layer_key(VggLayer::relu2_1), -1});
-  build_pool(cur_mem);
+              cur_diff_mem, {layer_key(VggLayer::relu2_1), -1});
+  build_pool(cur_mem, cur_diff_mem);
 
   build_block(3,
               {{128, 256, 3, 1, 1},
                {256, 256, 3, 1, 1},
                {256, 256, 3, 1, 1},
                {256, 256, 3, 1, 1}},
-              cur_mem, {layer_key(VggLayer::relu3_1), -1, -1, -1});
-  build_pool(cur_mem);
+              cur_mem, cur_diff_mem,
+              {layer_key(VggLayer::relu3_1), -1, -1, -1});
+  build_pool(cur_mem, cur_diff_mem);
 
   build_block(
       4,
@@ -36,11 +39,11 @@ Vgg19::Vgg19(const dnnl::engine &engine, int input_h, int input_w)
        {512, 512, 3, 1, 1},
        {512, 512, 3, 1, 1},
        {512, 512, 3, 1, 1}},
-      cur_mem,
+      cur_mem, cur_diff_mem,
       {layer_key(VggLayer::relu4_1), layer_key(VggLayer::relu4_2), -1, -1});
-  build_pool(cur_mem);
+  build_pool(cur_mem, cur_diff_mem);
 
-  build_block(5, {{512, 512, 3, 1, 1}}, cur_mem,
+  build_block(5, {{512, 512, 3, 1, 1}}, cur_mem, cur_diff_mem,
               {layer_key(VggLayer::relu5_1)});
 }
 
@@ -57,7 +60,8 @@ dnnl::memory Vgg19::make_bias_mem(int oc) {
 }
 
 void Vgg19::build_block(int block, const std::vector<ConvSpec> &convs,
-                        dnnl::memory &in_out_mem, std::vector<int> captures) {
+                        dnnl::memory &in_out_mem, dnnl::memory &in_out_diff_mem,
+                        std::vector<int> captures) {
   int pools_before = block - 1;
   int h = input_h_ >> pools_before;
   int w = input_w_ >> pools_before;
@@ -110,18 +114,23 @@ void Vgg19::build_block(int block, const std::vector<ConvSpec> &convs,
     lp.conv = dnnl::convolution_forward(conv_pd);
     lp.relu = dnnl::eltwise_forward(relu_pd);
     lp.capture_key = captures[i];
-    lp.diff_src_mem = dnnl::memory(conv_bw_data_pd.diff_src_desc(), engine_);
+    lp.diff_src_mem =
+        (conv_layers_.empty() && i == 0)
+            ? dnnl::memory(conv_bw_data_pd.diff_src_desc(), engine_)
+            : in_out_diff_mem;
     lp.diff_dst_mem = dnnl::memory(conv_bw_data_pd.diff_dst_desc(), engine_);
     lp.relu_bw = dnnl::eltwise_backward(relu_bw_pd);
     lp.conv_bw_data = dnnl::convolution_backward_data(conv_bw_data_pd);
 
     in_out_mem = lp.dst_mem;
+    in_out_diff_mem = lp.diff_dst_mem;
     exec_order_.emplace_back(false, conv_layers_.size());
     conv_layers_.push_back(std::move(lp));
   }
 }
 
-void Vgg19::build_pool(dnnl::memory &in_out_mem) {
+void Vgg19::build_pool(dnnl::memory &in_out_mem,
+                       dnnl::memory &in_out_diff_mem) {
   auto src_md = in_out_mem.get_desc();
   auto src_dims = src_md.get_dims();
   dnnl::memory::dims dst_dims = {src_dims[0], src_dims[1], src_dims[2] / 2,
@@ -141,11 +150,12 @@ void Vgg19::build_pool(dnnl::memory &in_out_mem) {
   pp.dst_mem = dnnl::memory(pool_pd.dst_desc(), engine_);
   pp.workspace_mem = dnnl::memory(pool_pd.workspace_desc(), engine_);
   pp.pool = dnnl::pooling_forward(pool_pd);
-  pp.diff_src_mem = dnnl::memory(pool_bw_pd.diff_src_desc(), engine_);
+  pp.diff_src_mem = in_out_diff_mem;
   pp.diff_dst_mem = dnnl::memory(pool_bw_pd.diff_dst_desc(), engine_);
   pp.pool_bw = dnnl::pooling_backward(pool_bw_pd);
 
   in_out_mem = pp.dst_mem;
+  in_out_diff_mem = pp.diff_dst_mem;
   exec_order_.emplace_back(true, pool_layers_.size());
   pool_layers_.push_back(std::move(pp));
 }
@@ -252,17 +262,21 @@ Vgg19::backward(const std::unordered_map<VggLayer, Tensor> &loss_gradients,
   };
 
   // Zero all gradient buffers before backward sweep.
+  std::unordered_set<void *> cleared_handles;
+  auto clear_mem = [&](dnnl::memory &mem) {
+    void *handle = mem.get_data_handle();
+    if (cleared_handles.insert(handle).second) {
+      std::memset(handle, 0, mem.get_desc().get_size());
+    }
+  };
+
   for (auto &lp : conv_layers_) {
-    std::memset(lp.diff_dst_mem.get_data_handle(), 0,
-                lp.diff_dst_mem.get_desc().get_size());
-    std::memset(lp.diff_src_mem.get_data_handle(), 0,
-                lp.diff_src_mem.get_desc().get_size());
+    clear_mem(lp.diff_dst_mem);
+    clear_mem(lp.diff_src_mem);
   }
   for (auto &pp : pool_layers_) {
-    std::memset(pp.diff_dst_mem.get_data_handle(), 0,
-                pp.diff_dst_mem.get_desc().get_size());
-    std::memset(pp.diff_src_mem.get_data_handle(), 0,
-                pp.diff_src_mem.get_desc().get_size());
+    clear_mem(pp.diff_dst_mem);
+    clear_mem(pp.diff_src_mem);
   }
 
   for (auto it = exec_order_.rbegin(); it != exec_order_.rend(); ++it) {
@@ -286,31 +300,11 @@ Vgg19::backward(const std::unordered_map<VggLayer, Tensor> &loss_gradients,
                                        {DNNL_ARG_WEIGHTS, lp.weights_mem},
                                        {DNNL_ARG_DIFF_SRC, lp.diff_src_mem}});
 
-      // Propagate gradient to the previous layer's diff_dst.
-      if (it + 1 != exec_order_.rend()) {
-        auto next = *(it + 1);
-        dnnl::memory &prev = next.first
-                                 ? pool_layers_[next.second].diff_dst_mem
-                                 : conv_layers_[next.second].diff_dst_mem;
-        dnnl::reorder(lp.diff_src_mem, prev)
-            .execute(stream,
-                     {{DNNL_ARG_FROM, lp.diff_src_mem}, {DNNL_ARG_TO, prev}});
-      }
     } else {
       auto &pp = pool_layers_[it->second];
       pp.pool_bw.execute(stream, {{DNNL_ARG_DIFF_DST, pp.diff_dst_mem},
                                   {DNNL_ARG_WORKSPACE, pp.workspace_mem},
                                   {DNNL_ARG_DIFF_SRC, pp.diff_src_mem}});
-
-      if (it + 1 != exec_order_.rend()) {
-        auto next = *(it + 1);
-        dnnl::memory &prev = next.first
-                                 ? pool_layers_[next.second].diff_dst_mem
-                                 : conv_layers_[next.second].diff_dst_mem;
-        dnnl::reorder(pp.diff_src_mem, prev)
-            .execute(stream,
-                     {{DNNL_ARG_FROM, pp.diff_src_mem}, {DNNL_ARG_TO, prev}});
-      }
     }
   }
   stream.wait();

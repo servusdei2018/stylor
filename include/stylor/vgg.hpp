@@ -115,9 +115,9 @@ private:
   dnnl::memory make_weights_mem(int oc, int ic, int kh, int kw);
   dnnl::memory make_bias_mem(int oc);
   void build_block(int block, const std::vector<ConvSpec> &convs,
-                   dnnl::memory &in_out_mem,
+                   dnnl::memory &in_out_mem, dnnl::memory &in_out_diff_mem,
                    std::vector<int> captures); ///< -1 = no capture
-  void build_pool(dnnl::memory &in_out_mem);
+  void build_pool(dnnl::memory &in_out_mem, dnnl::memory &in_out_diff_mem);
 
   // ------------------------------------------------------------------ data
   dnnl::engine engine_;
