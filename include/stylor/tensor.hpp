@@ -19,6 +19,11 @@ public:
   /// @param engine An already-constructed oneDNN engine to use.
   Tensor(std::vector<dnnl::memory::dim> dims, const dnnl::engine &engine);
 
+  /// @brief Constructs a tensor wrapping an existing oneDNN memory object
+  /// without deeply copying.
+  /// @param mem The oneDNN memory object to alias.
+  explicit Tensor(const dnnl::memory &mem);
+
   /// @brief Gets the raw data pointer for read/write operations.
   /// @return A pointer to the underlying float data array.
   float *get_data();
