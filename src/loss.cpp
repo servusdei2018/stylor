@@ -150,36 +150,63 @@ LossResult compute_tv_loss(const Tensor &image, bool compute_grad,
   std::optional<Tensor> grad;
   if (compute_grad) {
     grad.emplace(dims, engine);
-    std::memset((*grad).get_data(), 0, C * H * W * 4);
   }
 
   float *grad_ptr = compute_grad ? (*grad).get_data() : nullptr;
 
-#pragma omp parallel for reduction(+ : loss)
-  for (std::size_t c = 0; c < static_cast<std::size_t>(C); ++c) {
-    // Vertical differences (along H)
-    for (std::size_t h = 0; h < static_cast<std::size_t>(H - 1); ++h) {
-      for (std::size_t w = 0; w < static_cast<std::size_t>(W); ++w) {
-        std::size_t i = c * H * W + h * W + w;
-        std::size_t i_h = c * H * W + (h + 1) * W + w;
-        float d = data[i] - data[i_h];
-        loss += d * d * normalize;
-        if (compute_grad) {
-          grad_ptr[i] += 2.0f * d * normalize;
-          grad_ptr[i_h] -= 2.0f * d * normalize;
+  if (compute_grad) {
+#pragma omp parallel for simd collapse(3) reduction(+ : loss)
+    for (std::size_t c = 0; c < static_cast<std::size_t>(C); ++c) {
+      for (std::size_t h = 0; h < static_cast<std::size_t>(H); ++h) {
+        for (std::size_t w = 0; w < static_cast<std::size_t>(W); ++w) {
+          std::size_t i = c * H * W + h * W + w;
+          float val = data[i];
+          float l = 0.0f;
+          float g = 0.0f;
+
+          if (h < static_cast<std::size_t>(H - 1)) {
+            float d = val - data[i + W];
+            l += d * d;
+            g += d;
+          }
+          if (h > 0) {
+            float d = data[i - W] - val;
+            g -= d;
+          }
+          if (w < static_cast<std::size_t>(W - 1)) {
+            float d = val - data[i + 1];
+            l += d * d;
+            g += d;
+          }
+          if (w > 0) {
+            float d = data[i - 1] - val;
+            g -= d;
+          }
+
+          loss += l * normalize;
+          grad_ptr[i] = 2.0f * g * normalize;
         }
       }
     }
-    // Horizontal differences (along W)
-    for (std::size_t h = 0; h < static_cast<std::size_t>(H); ++h) {
-      for (std::size_t w = 0; w < static_cast<std::size_t>(W - 1); ++w) {
-        std::size_t i = c * H * W + h * W + w;
-        std::size_t i_w = c * H * W + h * W + (w + 1);
-        float d = data[i] - data[i_w];
-        loss += d * d * normalize;
-        if (compute_grad) {
-          grad_ptr[i] += 2.0f * d * normalize;
-          grad_ptr[i_w] -= 2.0f * d * normalize;
+  } else {
+#pragma omp parallel for simd collapse(3) reduction(+ : loss)
+    for (std::size_t c = 0; c < static_cast<std::size_t>(C); ++c) {
+      for (std::size_t h = 0; h < static_cast<std::size_t>(H); ++h) {
+        for (std::size_t w = 0; w < static_cast<std::size_t>(W); ++w) {
+          std::size_t i = c * H * W + h * W + w;
+          float val = data[i];
+          float l = 0.0f;
+
+          if (h < static_cast<std::size_t>(H - 1)) {
+            float d = val - data[i + W];
+            l += d * d;
+          }
+          if (w < static_cast<std::size_t>(W - 1)) {
+            float d = val - data[i + 1];
+            l += d * d;
+          }
+
+          loss += l * normalize;
         }
       }
     }
