@@ -40,6 +40,7 @@ void AdamOptimizer::step(
     float *m = state_[name].m.data();
     float *v = state_[name].v.data();
 
+#pragma omp parallel for simd
     for (std::size_t i = 0; i < elem_count; ++i) {
       float g = grad[i];
       m[i] = beta1_ * m[i] + (1.0f - beta1_) * g;

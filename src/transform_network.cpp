@@ -392,7 +392,10 @@ TransformNetwork::MemPair TransformNetwork::create_add(MemPair src0_mem,
       float *d = static_cast<float *>(dst.get_data_handle());
       const float *s = static_cast<const float *>(src.get_data_handle());
       std::size_t size = dst.get_desc().get_size() / sizeof(float);
-      std::memcpy(d, s, size * sizeof(float));
+#pragma omp parallel for simd
+      for (std::size_t i = 0; i < size; ++i) {
+        d[i] = s[i];
+      }
     };
     // Sum branches distribute gradient equally without accumulation
     // pre-requisites
@@ -429,6 +432,7 @@ TransformNetwork::create_resblock(const std::string &name, int channels,
     const float *branch_bwd =
         static_cast<const float *>(conv1_bwd.get_data_handle());
     std::size_t size = src_mem.bwd.get_desc().get_size() / sizeof(float);
+#pragma omp parallel for simd
     for (std::size_t i = 0; i < size; ++i) {
       main_bwd[i] += branch_bwd[i];
     }

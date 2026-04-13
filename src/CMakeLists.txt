@@ -14,7 +14,6 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(json)
 
 add_library(stylor STATIC
-    stylor.cpp
     image.cpp
     tensor.cpp
     loss.cpp
@@ -33,12 +32,18 @@ target_include_directories(stylor
         ${stb_SOURCE_DIR}
 )
 
+find_package(OpenMP)
+
 target_link_libraries(stylor 
     PUBLIC 
         dnnl
     PRIVATE 
         nlohmann_json::nlohmann_json
 )
+
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(stylor PUBLIC OpenMP::OpenMP_CXX)
+endif()
 
 add_executable(stylor_cli 
     main.cpp

@@ -12,22 +12,29 @@ Tensor compute_gram_matrix(const Tensor &feature_map,
   const auto HW = H * W;
 
   Tensor dst({1, 1, C, C}, engine);
-  const float *f_ptr = feature_map.get_data();
   float *g_ptr = dst.get_data();
+  void *f_raw =
+      static_cast<void *>(const_cast<float *>(feature_map.get_data()));
 
-  // Manual Gram calculation: G = F * F^T
-  // G[c1, c2] = sum_hw (F[c1, hw] * F[c2, hw])
-  // Scaled by 1/(C*H*W)
+  dnnl::memory::desc src_md({C, HW}, dnnl::memory::data_type::f32, {HW, 1});
+  dnnl::memory::desc wei_md({HW, C}, dnnl::memory::data_type::f32, {1, HW});
+  dnnl::memory::desc dst_md({C, C}, dnnl::memory::data_type::f32, {C, 1});
+
+  auto matmul_pd = dnnl::matmul::primitive_desc(engine, src_md, wei_md, dst_md);
+
+  dnnl::memory src_mem(src_md, engine, f_raw);
+  dnnl::memory wei_mem(wei_md, engine, f_raw);
+  dnnl::memory dst_mem(dst_md, engine, g_ptr);
+
+  dnnl::matmul(matmul_pd).execute(stream, {{DNNL_ARG_SRC, src_mem},
+                                           {DNNL_ARG_WEIGHTS, wei_mem},
+                                           {DNNL_ARG_DST, dst_mem}});
+  stream.wait();
+
   const float scale = 1.0f / static_cast<float>(C * H * W);
-
-  for (std::size_t c1 = 0; c1 < static_cast<std::size_t>(C); ++c1) {
-    for (std::size_t c2 = 0; c2 < static_cast<std::size_t>(C); ++c2) {
-      float sum = 0.0f;
-      for (std::size_t hw = 0; hw < static_cast<std::size_t>(HW); ++hw) {
-        sum += f_ptr[c1 * HW + hw] * f_ptr[c2 * HW + hw];
-      }
-      g_ptr[c1 * C + c2] = sum * scale;
-    }
+#pragma omp parallel for simd
+  for (std::size_t i = 0; i < static_cast<std::size_t>(C * C); ++i) {
+    g_ptr[i] *= scale;
   }
 
   return dst;
@@ -51,6 +58,7 @@ LossResult compute_content_loss(const Tensor &generated, const Tensor &target,
 
   float *grad_ptr = compute_grad ? (*grad).get_data() : nullptr;
 
+#pragma omp parallel for simd reduction(+ : loss)
   for (std::size_t i = 0; i < total; ++i) {
     float diff = gen_ptr[i] - tgt_ptr[i];
     loss += diff * diff;
@@ -78,6 +86,7 @@ LossResult compute_style_loss(const Tensor &generated_gram,
   Tensor d_gram({1, 1, C, C}, engine);
   float *d_gram_ptr = d_gram.get_data();
 
+#pragma omp parallel for simd reduction(+ : loss)
   for (std::size_t i = 0; i < static_cast<std::size_t>(C * C); ++i) {
     float diff = gen_gram_ptr[i] - tgt_gram_ptr[i];
     loss += diff * diff;
@@ -96,21 +105,28 @@ LossResult compute_style_loss(const Tensor &generated_gram,
     float *df_ptr = (*grad).get_data();
 
     // dL/dF via chain rule through the Gram forward pass.
-    //
-    // Forward:  G[c1,c2] = (1/C·H·W) · Σ_hw F[c1,hw] · F[c2,hw]
-    // d_gram_ptr already holds  dL/dG[c1,c2] = 2·diff·(1/C²)
-    // (the factor of 2 from the MSE derivative is already embedded in d_gram).
-    //
-    // Chain rule: dL/dF[c1,hw] = Σ_c2  dL/dG[c1,c2] · (1/C·H·W) · F[c2,hw]
-    //                           = (1/C·H·W) · Σ_c2  d_gram[c1,c2] · F[c2,hw]
-    for (std::size_t c1 = 0; c1 < static_cast<std::size_t>(C); ++c1) {
-      for (std::size_t hw = 0; hw < static_cast<std::size_t>(HW); ++hw) {
-        float sum = 0.0f;
-        for (std::size_t c2 = 0; c2 < static_cast<std::size_t>(C); ++c2) {
-          sum += d_gram_ptr[c1 * C + c2] * f_ptr[c2 * HW + hw];
-        }
-        df_ptr[c1 * HW + hw] = sum * (1.0f / static_cast<float>(C * HW));
-      }
+    // df = d_gram * F
+    dnnl::memory::desc src_md({C, C}, dnnl::memory::data_type::f32, {C, 1});
+    dnnl::memory::desc wei_md({C, HW}, dnnl::memory::data_type::f32, {HW, 1});
+    dnnl::memory::desc dst_md({C, HW}, dnnl::memory::data_type::f32, {HW, 1});
+
+    auto matmul_pd =
+        dnnl::matmul::primitive_desc(engine, src_md, wei_md, dst_md);
+
+    dnnl::memory src_mem(src_md, engine, static_cast<void *>(d_gram_ptr));
+    dnnl::memory wei_mem(wei_md, engine,
+                         static_cast<void *>(const_cast<float *>(f_ptr)));
+    dnnl::memory dst_mem(dst_md, engine, static_cast<void *>(df_ptr));
+
+    dnnl::matmul(matmul_pd).execute(stream, {{DNNL_ARG_SRC, src_mem},
+                                             {DNNL_ARG_WEIGHTS, wei_mem},
+                                             {DNNL_ARG_DST, dst_mem}});
+    stream.wait();
+
+    const float scale = 1.0f / static_cast<float>(C * HW);
+#pragma omp parallel for simd
+    for (std::size_t i = 0; i < static_cast<std::size_t>(C * HW); ++i) {
+      df_ptr[i] *= scale;
     }
   }
 
@@ -139,6 +155,7 @@ LossResult compute_tv_loss(const Tensor &image, bool compute_grad,
 
   float *grad_ptr = compute_grad ? (*grad).get_data() : nullptr;
 
+#pragma omp parallel for reduction(+ : loss)
   for (std::size_t c = 0; c < static_cast<std::size_t>(C); ++c) {
     // Vertical differences (along H)
     for (std::size_t h = 0; h < static_cast<std::size_t>(H - 1); ++h) {

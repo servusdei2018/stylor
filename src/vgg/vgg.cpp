@@ -250,7 +250,9 @@ Vgg19::backward(const std::unordered_map<VggLayer, Tensor> &loss_gradients,
   auto add_to = [](dnnl::memory &mem, const Tensor &t) {
     float *d = static_cast<float *>(mem.get_data_handle());
     const float *s = t.get_data();
-    for (std::size_t i = 0; i < mem.get_desc().get_size() / 4; ++i)
+    std::size_t size = mem.get_desc().get_size() / sizeof(float);
+#pragma omp parallel for simd
+    for (std::size_t i = 0; i < size; ++i)
       d[i] += s[i];
   };
 
@@ -278,8 +280,7 @@ Vgg19::backward(const std::unordered_map<VggLayer, Tensor> &loss_gradients,
         add_to(lp.diff_dst_mem,
                loss_gradients.at(static_cast<VggLayer>(lp.capture_key)));
 
-      // ReLU backward: eltwise_relu_use_dst_for_bwd requires DNNL_ARG_DST
-      // (the saved forward output), NOT DNNL_ARG_SRC.
+      // ReLU backward
       lp.relu_bw.execute(stream,
                          {{DNNL_ARG_DST, lp.dst_mem}, // forward output
                           {DNNL_ARG_DIFF_DST, lp.diff_dst_mem},
