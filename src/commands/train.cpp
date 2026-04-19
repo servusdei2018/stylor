@@ -51,9 +51,7 @@ static float clip_grad_norm(
       continue;
     const float *g =
         static_cast<const float *>(desc.diff_mem.get_data_handle());
-    size_t n = 1;
-    for (int d : desc.shape)
-      n *= d;
+    const size_t n = desc.elem_count;
 #pragma omp parallel for simd reduction(+ : total_sq)
     for (size_t i = 0; i < n; ++i)
       total_sq += static_cast<double>(g[i]) * g[i];
@@ -66,9 +64,7 @@ static float clip_grad_norm(
       if (!desc.diff_mem)
         continue;
       float *g = static_cast<float *>(desc.diff_mem.get_data_handle());
-      size_t n = 1;
-      for (int d : desc.shape)
-        n *= d;
+      const size_t n = desc.elem_count;
 #pragma omp parallel for simd
       for (size_t i = 0; i < n; ++i)
         g[i] *= scale;

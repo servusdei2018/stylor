@@ -20,15 +20,13 @@ void AdamOptimizer::step(
     const std::string &name = pair.first;
     TransformNetwork::ParamDescriptor &desc = pair.second;
 
-    std::size_t elem_count = 1;
-    for (int d : desc.shape) {
-      elem_count *= d;
-    }
-
-    if (state_.find(name) == state_.end()) {
-      state_[name] = {std::vector<float>(elem_count, 0.0f),
-                      std::vector<float>(elem_count, 0.0f)};
-    }
+    // 4a: single try_emplace replaces find + operator[] (was 4 hash-map ops).
+    // 4c: allocate interleaved [m0,v0, m1,v1, …] in one contiguous buffer.
+    // 4b: use cached elem_count instead of recomputing the shape product.
+    const std::size_t elem_count = desc.elem_count;
+    auto [it, inserted] = state_.try_emplace(
+        name, Moments{std::vector<float>(2 * elem_count, 0.0f), elem_count});
+    Moments &moments = it->second;
 
     // Zero out param updates if the parameter tensor is missing
     if (!desc.mem || !desc.diff_mem)
@@ -37,17 +35,25 @@ void AdamOptimizer::step(
     float *w = static_cast<float *>(desc.mem.get_data_handle());
     const float *grad =
         static_cast<const float *>(desc.diff_mem.get_data_handle());
-    float *m = state_[name].m.data();
-    float *v = state_[name].v.data();
+    float *mv = moments.mv.data();
+
+    // Hoist loop-invariant bias-correction coefficients.
+    const float one_minus_beta1 = 1.0f - beta1_;
+    const float one_minus_beta2 = 1.0f - beta2_;
 
 #pragma omp parallel for simd
     for (std::size_t i = 0; i < elem_count; ++i) {
-      float g = grad[i];
-      m[i] = beta1_ * m[i] + (1.0f - beta1_) * g;
-      v[i] = beta2_ * v[i] + (1.0f - beta2_) * g * g;
+      const float g = grad[i];
+      const std::size_t j = 2 * i;
+
+      // 4c: m and v for element i are adjacent → single cache-line read/write.
+      const float mi = beta1_ * mv[j] + one_minus_beta1 * g;
+      const float vi = beta2_ * mv[j + 1] + one_minus_beta2 * g * g;
+      mv[j] = mi;
+      mv[j + 1] = vi;
 
       // Adam update formula
-      w[i] -= alpha_t * m[i] / (std::sqrt(v[i]) + epsilon_);
+      w[i] -= alpha_t * mi / (std::sqrt(vi) + epsilon_);
     }
   }
 }

@@ -47,8 +47,10 @@ private:
   int t_; // Timestep
 
   struct Moments {
-    std::vector<float> m;
-    std::vector<float> v;
+    // Interleaved first/second moments: [m0, v0, m1, v1, ...].
+    // Keeping m[i] and v[i] adjacent halves cache-line loads in the hot loop.
+    std::vector<float> mv;
+    std::size_t elem_count;
   };
   std::unordered_map<std::string, Moments> state_;
 };

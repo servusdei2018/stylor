@@ -78,9 +78,7 @@ void TransformNetwork::init_weights() {
     const std::string &name = pair.first;
     ParamDescriptor &desc = pair.second;
     float *ptr = static_cast<float *>(desc.mem.get_data_handle());
-    std::size_t count = 1;
-    for (int d : desc.shape)
-      count *= d;
+    const std::size_t count = desc.elem_count;
 
     if (name.size() >= 7 && name.substr(name.size() - 7) == ".weight") {
       // Determine if this is a conv weight (rank 4) or norm scale (rank 1).
@@ -114,12 +112,8 @@ void TransformNetwork::load_weights(const std::string &path) {
       continue;
     }
 
-    std::size_t elem_count = 1;
-    for (int d : desc.shape)
-      elem_count *= d;
-
     loader.load_tensor(name, static_cast<float *>(desc.mem.get_data_handle()),
-                       elem_count);
+                       desc.elem_count);
   }
 }
 
@@ -129,13 +123,9 @@ void TransformNetwork::save_weights(const std::string &path) const {
     const std::string &name = pair.first;
     const ParamDescriptor &desc = pair.second;
 
-    std::size_t elem_count = 1;
-    for (int d : desc.shape)
-      elem_count *= d;
-
     writer.add_tensor(name, desc.shape,
                       static_cast<const float *>(desc.mem.get_data_handle()),
-                      elem_count);
+                      desc.elem_count);
   }
   writer.write();
 }
@@ -204,9 +194,13 @@ TransformNetwork::MemPair TransformNetwork::create_conv(const std::string &name,
   dnnl::memory diff_weights_mem(weights_md, engine_);
   dnnl::memory diff_bias_mem(bias_md, engine_);
 
-  parameters_[name + ".weight"] = {
-      weights_mem, {(int)oc, (int)ic, kernel, kernel}, diff_weights_mem};
-  parameters_[name + ".bias"] = {bias_mem, {(int)oc}, diff_bias_mem};
+  parameters_[name + ".weight"] = {weights_mem,
+                                   {(int)oc, (int)ic, kernel, kernel},
+                                   diff_weights_mem,
+                                   static_cast<std::size_t>(oc) * ic * kernel *
+                                       kernel};
+  parameters_[name + ".bias"] = {
+      bias_mem, {(int)oc}, diff_bias_mem, static_cast<std::size_t>(oc)};
 
   auto conv_pd = dnnl::convolution_forward::primitive_desc(
       engine_, dnnl::prop_kind::forward_training,
@@ -275,8 +269,14 @@ TransformNetwork::MemPair TransformNetwork::create_norm(const std::string &name,
   dnnl::memory diff_scale_mem(gn_bw_pd.diff_weights_desc(), engine_);
   dnnl::memory diff_shift_mem(gn_bw_pd.diff_weights_desc(), engine_);
 
-  parameters_[name + ".weight"] = {scale_mem, {channels}, diff_scale_mem};
-  parameters_[name + ".bias"] = {shift_mem, {channels}, diff_shift_mem};
+  parameters_[name + ".weight"] = {scale_mem,
+                                   {channels},
+                                   diff_scale_mem,
+                                   static_cast<std::size_t>(channels)};
+  parameters_[name + ".bias"] = {shift_mem,
+                                 {channels},
+                                 diff_shift_mem,
+                                 static_cast<std::size_t>(channels)};
 
   dnnl::memory dst_mem(gn_pd.dst_desc(), engine_);
   dnnl::memory diff_dst_mem(gn_bw_pd.diff_dst_desc(), engine_);

@@ -48,7 +48,8 @@ public:
   struct ParamDescriptor {
     dnnl::memory mem;
     std::vector<int> shape;
-    dnnl::memory diff_mem; // Gradient for optimization
+    dnnl::memory diff_mem;     // Gradient for optimization
+    std::size_t elem_count{0}; // Product of shape dims, cached at construction
   };
 
   /// @brief Gets the parameters of the network.
