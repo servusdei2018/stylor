@@ -33,8 +33,6 @@ target_include_directories(stylor
         ${stb_SOURCE_DIR}
 )
 
-find_package(OpenMP)
-
 target_link_libraries(stylor 
     PUBLIC 
         dnnl

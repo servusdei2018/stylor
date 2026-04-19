@@ -29,6 +29,11 @@ FetchContent_MakeAvailable(onednn)
 
 enable_testing()
 
+find_package(OpenMP)
+if(NOT OpenMP_CXX_FOUND)
+    message(WARNING "OpenMP not found — parallel loops will run sequentially")
+endif()
+
 add_subdirectory(src)
 add_subdirectory(tests)
 
