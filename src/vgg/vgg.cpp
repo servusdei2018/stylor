@@ -45,6 +45,21 @@ Vgg19::Vgg19(const dnnl::engine &engine, int input_h, int input_w)
 
   build_block(5, {{512, 512, 3, 1, 1}}, cur_mem, cur_diff_mem,
               {layer_key(VggLayer::relu5_1)});
+
+  std::unordered_set<void *> seen;
+  auto try_add = [&](dnnl::memory &mem) {
+    void *h = mem.get_data_handle();
+    if (seen.insert(h).second)
+      zero_bufs_.emplace_back(h, mem.get_desc().get_size());
+  };
+  for (auto &lp : conv_layers_) {
+    try_add(lp.diff_dst_mem);
+    try_add(lp.diff_src_mem);
+  }
+  for (auto &pp : pool_layers_) {
+    try_add(pp.diff_dst_mem);
+    try_add(pp.diff_src_mem);
+  }
 }
 
 dnnl::memory Vgg19::make_weights_mem(int oc, int ic, int kh, int kw) {
@@ -165,7 +180,7 @@ void Vgg19::load_weights(const std::string &path) {
   dnnl::stream stream(engine_);
 
   for (auto &lp : conv_layers_) {
-    auto w_dims = lp.weights_mem.get_desc().get_dims();
+    const auto &w_dims = lp.weights_mem.get_desc().get_dims();
     std::size_t w_count =
         (std::size_t)w_dims[0] * w_dims[1] * w_dims[2] * w_dims[3];
     dnnl::memory load_w_mem(
@@ -188,7 +203,7 @@ void Vgg19::forward(const Tensor &input, dnnl::stream &stream) {
     throw std::logic_error("Vgg19::forward: call load_weights() first");
 
   {
-    auto dims = input.get_dims();
+    const auto &dims = input.get_dims();
     if (dims.size() != 4 || dims[2] != input_h_ || dims[3] != input_w_)
       throw std::invalid_argument(
           "Vgg19::forward: input spatial size does not match network "
@@ -255,21 +270,8 @@ Vgg19::backward(const std::unordered_map<VggLayer, Tensor> &loss_gradients,
   };
 
   // Zero all gradient buffers before backward sweep.
-  std::unordered_set<void *> cleared_handles;
-  auto clear_mem = [&](dnnl::memory &mem) {
-    void *handle = mem.get_data_handle();
-    if (cleared_handles.insert(handle).second) {
-      std::memset(handle, 0, mem.get_desc().get_size());
-    }
-  };
-
-  for (auto &lp : conv_layers_) {
-    clear_mem(lp.diff_dst_mem);
-    clear_mem(lp.diff_src_mem);
-  }
-  for (auto &pp : pool_layers_) {
-    clear_mem(pp.diff_dst_mem);
-    clear_mem(pp.diff_src_mem);
+  for (auto &[handle, size] : zero_bufs_) {
+    std::memset(handle, 0, size);
   }
 
   for (auto it = exec_order_.rbegin(); it != exec_order_.rend(); ++it) {

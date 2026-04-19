@@ -76,7 +76,7 @@ private:
     const float *data;
     std::size_t count;
   };
-  std::unordered_map<std::string, TensorData> tensors_;
+  std::vector<std::pair<std::string, TensorData>> tensors_;
 };
 
 } // namespace stylor

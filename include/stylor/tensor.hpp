@@ -34,7 +34,7 @@ public:
 
   /// @brief Gets the dimensions of the tensor.
   /// @return The dimensions vector.
-  std::vector<dnnl::memory::dim> get_dims() const;
+  const std::vector<dnnl::memory::dim> &get_dims() const;
 
   /// @brief Gets the underlying oneDNN memory object.
   /// @return The oneDNN memory object.

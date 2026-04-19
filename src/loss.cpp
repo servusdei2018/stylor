@@ -6,7 +6,7 @@ namespace stylor {
 
 Tensor compute_gram_matrix(const Tensor &feature_map, const GramPrimitives &gp,
                            const dnnl::engine &engine, dnnl::stream &stream) {
-  auto dims = feature_map.get_dims();
+  const auto &dims = feature_map.get_dims();
   const auto C = dims[1];
   const auto H = dims[2];
   const auto W = dims[3];
@@ -37,7 +37,7 @@ Tensor compute_gram_matrix(const Tensor &feature_map, const GramPrimitives &gp,
 LossResult compute_content_loss(const Tensor &generated, const Tensor &target,
                                 bool compute_grad, const dnnl::engine &engine,
                                 dnnl::stream &stream) {
-  auto dims = generated.get_dims();
+  const auto &dims = generated.get_dims();
   const std::size_t total = dims[1] * dims[2] * dims[3];
   const float normalize = 1.0f / static_cast<float>(total);
 
@@ -52,12 +52,18 @@ LossResult compute_content_loss(const Tensor &generated, const Tensor &target,
 
   float *grad_ptr = compute_grad ? (*grad).get_data() : nullptr;
 
+  if (compute_grad) {
 #pragma omp parallel for simd reduction(+ : loss)
-  for (std::size_t i = 0; i < total; ++i) {
-    float diff = gen_ptr[i] - tgt_ptr[i];
-    loss += diff * diff;
-    if (compute_grad) {
+    for (std::size_t i = 0; i < total; ++i) {
+      float diff = gen_ptr[i] - tgt_ptr[i];
+      loss += diff * diff;
       grad_ptr[i] = 2.0f * diff * normalize;
+    }
+  } else {
+#pragma omp parallel for simd reduction(+ : loss)
+    for (std::size_t i = 0; i < total; ++i) {
+      float diff = gen_ptr[i] - tgt_ptr[i];
+      loss += diff * diff;
     }
   }
 
@@ -70,7 +76,7 @@ LossResult compute_style_loss(const Tensor &generated_gram,
                               const StyleBackwardPrimitives &sbp,
                               bool compute_grad, const dnnl::engine &engine,
                               dnnl::stream &stream) {
-  auto g_dims = generated_gram.get_dims();
+  const auto &g_dims = generated_gram.get_dims();
   const auto C = g_dims[2];
   const float normalize = 1.0f / static_cast<float>(C * C);
 
@@ -92,7 +98,7 @@ LossResult compute_style_loss(const Tensor &generated_gram,
 
   std::optional<Tensor> grad;
   if (compute_grad) {
-    auto f_dims = generated_features.get_dims();
+    const auto &f_dims = generated_features.get_dims();
     grad.emplace(f_dims, engine);
     const auto HW = f_dims[2] * f_dims[3];
 
@@ -123,7 +129,7 @@ LossResult compute_style_loss(const Tensor &generated_gram,
 
 LossResult compute_tv_loss(const Tensor &image, bool compute_grad,
                            const dnnl::engine &engine, dnnl::stream &stream) {
-  auto dims = image.get_dims();
+  const auto &dims = image.get_dims();
   const auto C = dims[1];
   const auto H = dims[2];
   const auto W = dims[3];

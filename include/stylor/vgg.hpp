@@ -139,6 +139,7 @@ private:
   int input_w_;
   bool weights_loaded_{false};
   bool forward_done_{false};
+  std::vector<std::pair<void *, std::size_t>> zero_bufs_;
 };
 
 } // namespace stylor

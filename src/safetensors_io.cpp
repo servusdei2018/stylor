@@ -101,7 +101,7 @@ void SafetensorsWriter::add_tensor(const std::string &name,
   td.shape = shape;
   td.data = data;
   td.count = count;
-  tensors_[name] = td;
+  tensors_.emplace_back(name, std::move(td));
 }
 
 void SafetensorsWriter::write() {

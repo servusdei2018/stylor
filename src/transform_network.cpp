@@ -393,19 +393,13 @@ TransformNetwork::MemPair TransformNetwork::create_add(MemPair src0_mem,
   });
 
   backward_pipeline_.push_back([=, this]() mutable {
-    auto copy_to = [](dnnl::memory &dst, const dnnl::memory &src) {
-      float *d = static_cast<float *>(dst.get_data_handle());
-      const float *s = static_cast<const float *>(src.get_data_handle());
-      std::size_t size = dst.get_desc().get_size() / sizeof(float);
-#pragma omp parallel for simd
-      for (std::size_t i = 0; i < size; ++i) {
-        d[i] = s[i];
-      }
-    };
-    // Sum branches distribute gradient equally without accumulation
-    // pre-requisites
-    copy_to(src0_mem.bwd, diff_dst_mem);
-    copy_to(src1_mem.bwd, diff_dst_mem);
+    // Gradient of element-wise add: fan out diff_dst to both inputs.
+    dnnl::reorder(diff_dst_mem, src0_mem.bwd)
+        .execute(stream_,
+                 {{DNNL_ARG_FROM, diff_dst_mem}, {DNNL_ARG_TO, src0_mem.bwd}});
+    dnnl::reorder(diff_dst_mem, src1_mem.bwd)
+        .execute(stream_,
+                 {{DNNL_ARG_FROM, diff_dst_mem}, {DNNL_ARG_TO, src1_mem.bwd}});
   });
 
   return {dst_mem, diff_dst_mem};
@@ -431,16 +425,16 @@ TransformNetwork::create_resblock(const std::string &name, int channels,
 
   MemPair res = create_add(src_mem, out2);
 
+  auto binary_pd = dnnl::binary::primitive_desc(
+      engine_, dnnl::algorithm::binary_add, src_mem.bwd.get_desc(),
+      conv1_bwd.get_desc(), src_mem.bwd.get_desc());
+  dnnl::binary bin_add(binary_pd);
+
   // Accumulate conv1 backward branch into the main trunk
   backward_pipeline_.push_back([=, this]() mutable {
-    float *main_bwd = static_cast<float *>(src_mem.bwd.get_data_handle());
-    const float *branch_bwd =
-        static_cast<const float *>(conv1_bwd.get_data_handle());
-    std::size_t size = src_mem.bwd.get_desc().get_size() / sizeof(float);
-#pragma omp parallel for simd
-    for (std::size_t i = 0; i < size; ++i) {
-      main_bwd[i] += branch_bwd[i];
-    }
+    bin_add.execute(stream_, {{DNNL_ARG_SRC_0, src_mem.bwd},
+                              {DNNL_ARG_SRC_1, conv1_bwd},
+                              {DNNL_ARG_DST, src_mem.bwd}});
   });
 
   return res;

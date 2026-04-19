@@ -1,6 +1,5 @@
 #include "stylor/preprocessing.hpp"
 
-#include <algorithm>
 #include <cstring>
 #include <stdexcept>
 
@@ -119,7 +118,7 @@ Tensor preprocess_image(const Image &img, const dnnl::engine &engine) {
 // ---------------------------------------------------------------------------
 Image postprocess_image(const Tensor &tensor, const dnnl::engine &engine,
                         dnnl::stream &stream) {
-  auto dims = tensor.get_dims(); // {N, C, H, W}
+  const auto &dims = tensor.get_dims(); // {N, C, H, W}
   if (dims.size() != 4 || dims[1] != 3) {
     throw std::invalid_argument(
         "postprocess_image: expected 4D tensor with 3 channels.");
@@ -190,7 +189,7 @@ Tensor resize_tensor(const Tensor &tensor, int height, int width,
         std::to_string(width) + "x" + std::to_string(height) + ")");
   }
 
-  auto src_dims = tensor.get_dims(); // {N, C, H, W}
+  const auto &src_dims = tensor.get_dims(); // {N, C, H, W}
   if (src_dims[2] == height && src_dims[3] == width)
     return tensor; // no-op
 

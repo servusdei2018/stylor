@@ -26,7 +26,7 @@ const float *Tensor::get_data() const {
   return static_cast<const float *>(memory_.get_data_handle());
 }
 
-std::vector<dnnl::memory::dim> Tensor::get_dims() const { return dims_; }
+const std::vector<dnnl::memory::dim> &Tensor::get_dims() const { return dims_; }
 
 dnnl::memory &Tensor::get_memory() { return memory_; }
 
