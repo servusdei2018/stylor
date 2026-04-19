@@ -83,6 +83,11 @@ private:
   MemPair input_mempair_;
   MemPair output_mempair_;
 
+  // Cached reorder primitives (constructed once in ctor)
+  dnnl::reorder input_reorder_;       // input NCHW → pipeline format
+  dnnl::reorder output_reorder_;      // pipeline format → output NCHW
+  dnnl::reorder grad_inject_reorder_; // grad NCHW → backward pipeline format
+
   // Construction helpers
   MemPair create_conv(const std::string &name, int ic, int oc, int kernel,
                       int stride, int padding, MemPair src_mem);

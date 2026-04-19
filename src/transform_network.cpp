@@ -60,6 +60,13 @@ TransformNetwork::TransformNetwork(const dnnl::engine &engine, int input_h,
   output_tensor_ = std::make_unique<Tensor>(
       output_mempair_.fwd.get_desc().get_dims(), engine_);
 
+  // Cache reorder primitives for forward/backward inject & extract
+  input_reorder_ = dnnl::reorder(input_mempair_.fwd, input_mempair_.fwd);
+  output_reorder_ =
+      dnnl::reorder(output_mempair_.fwd, output_tensor_->get_memory());
+  grad_inject_reorder_ =
+      dnnl::reorder(output_mempair_.bwd, output_mempair_.bwd);
+
   // Initialise all parameters before any training or inference.
   init_weights();
 }
@@ -134,28 +141,26 @@ void TransformNetwork::save_weights(const std::string &path) const {
 }
 
 void TransformNetwork::forward(const Tensor &input) {
-  // Inject input into the first layer's fwd_mem using reorder
-  dnnl::reorder(input.get_memory(), input_mempair_.fwd)
-      .execute(stream_, {{DNNL_ARG_FROM, input.get_memory()},
-                         {DNNL_ARG_TO, input_mempair_.fwd}});
+  // Inject input into the first layer's fwd_mem using cached reorder
+  input_reorder_.execute(stream_, {{DNNL_ARG_FROM, input.get_memory()},
+                                   {DNNL_ARG_TO, input_mempair_.fwd}});
 
   for (auto &prim : pipeline_) {
     prim();
   }
-  stream_.wait();
 
-  // Extract from output layer's fwd_mem using reorder
-  dnnl::reorder(output_mempair_.fwd, output_tensor_->get_memory())
-      .execute(stream_, {{DNNL_ARG_FROM, output_mempair_.fwd},
-                         {DNNL_ARG_TO, output_tensor_->get_memory()}});
+  // Extract from output layer's fwd_mem using cached reorder
+  output_reorder_.execute(stream_,
+                          {{DNNL_ARG_FROM, output_mempair_.fwd},
+                           {DNNL_ARG_TO, output_tensor_->get_memory()}});
   stream_.wait();
 }
 
 void TransformNetwork::backward(const Tensor &grad_output) {
-  // Inject gradient using reorder
-  dnnl::reorder(grad_output.get_memory(), output_mempair_.bwd)
-      .execute(stream_, {{DNNL_ARG_FROM, grad_output.get_memory()},
-                         {DNNL_ARG_TO, output_mempair_.bwd}});
+  // Inject gradient using cached reorder
+  grad_inject_reorder_.execute(stream_,
+                               {{DNNL_ARG_FROM, grad_output.get_memory()},
+                                {DNNL_ARG_TO, output_mempair_.bwd}});
 
   for (auto it = backward_pipeline_.rbegin(); it != backward_pipeline_.rend();
        ++it) {
