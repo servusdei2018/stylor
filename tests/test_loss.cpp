@@ -1,4 +1,5 @@
 #include "stylor/loss.hpp"
+#include "stylor/training_context.hpp"
 #include <gtest/gtest.h>
 
 using namespace stylor;
@@ -22,7 +23,8 @@ TEST(LossTest, GramMatrix) {
   F_ptr[2] = 3.0f;
   F_ptr[3] = 4.0f;
 
-  auto G = compute_gram_matrix(F, engine, stream);
+  GramPrimitives gp(2, 2, engine);
+  auto G = compute_gram_matrix(F, gp, engine, stream);
   auto dims = G.get_dims();
   EXPECT_EQ(dims.size(), 4u);
   EXPECT_EQ(dims[0], 1);
@@ -103,14 +105,17 @@ TEST(LossTest, StyleLossGradient) {
   F.get_data()[0] = 5.0f;
 
   // Gram(F) = (1/CHW) * F*F^T = (1/1) * 25 = 25
-  auto gen_gram = compute_gram_matrix(F, engine, stream);
+  GramPrimitives gp(1, 1, engine);
+  auto gen_gram = compute_gram_matrix(F, gp, engine, stream);
   EXPECT_FLOAT_EQ(gen_gram.get_data()[0], 25.0f);
 
   // Style target Gram = 0 (so the diff is 25).
   Tensor tgt_gram({1, 1, 1, 1}, engine);
   tgt_gram.get_data()[0] = 0.0f;
 
-  auto result = compute_style_loss(gen_gram, tgt_gram, F, true, engine, stream);
+  StyleBackwardPrimitives sbp(1, 1, engine);
+  auto result =
+      compute_style_loss(gen_gram, tgt_gram, F, sbp, true, engine, stream);
 
   // Loss = normalize * diff^2  where normalize = 1/(C*C) = 1
   // loss = 1 * (25-0)^2 = 625

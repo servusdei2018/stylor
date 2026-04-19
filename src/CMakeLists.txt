@@ -17,6 +17,7 @@ add_library(stylor STATIC
     image.cpp
     tensor.cpp
     loss.cpp
+    training_context.cpp
     optimizer.cpp
     vgg/vgg.cpp
     vgg/preprocessing.cpp

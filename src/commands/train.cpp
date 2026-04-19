@@ -3,6 +3,7 @@
 #include "stylor/loss.hpp"
 #include "stylor/optimizer.hpp"
 #include "stylor/preprocessing.hpp"
+#include "stylor/training_context.hpp"
 #include "stylor/transform_network.hpp"
 #include "stylor/vgg.hpp"
 #include <cmath>
@@ -15,26 +16,23 @@ namespace fs = std::filesystem;
 
 namespace commands {
 
-static void scale_tensor(stylor::Tensor &t, float scale,
-                         const dnnl::engine &engine, dnnl::stream &stream) {
-  auto pd = dnnl::eltwise_forward::primitive_desc(
-      engine, dnnl::prop_kind::forward_inference,
-      dnnl::algorithm::eltwise_linear, t.get_memory().get_desc(),
-      t.get_memory().get_desc(), scale, 0.0f);
-  dnnl::eltwise_forward(pd).execute(
-      stream, {{DNNL_ARG_SRC, t.get_memory()}, {DNNL_ARG_DST, t.get_memory()}});
-  stream.wait();
+static void scale_tensor(stylor::Tensor &t, float scale) {
+  float *ptr = t.get_data();
+  auto dims = t.get_dims();
+  const std::size_t n = dims[0] * dims[1] * dims[2] * dims[3];
+#pragma omp parallel for simd
+  for (std::size_t i = 0; i < n; ++i)
+    ptr[i] *= scale;
 }
 
-static void add_tensors(stylor::Tensor &dst, const stylor::Tensor &src,
-                        const dnnl::engine &engine, dnnl::stream &stream) {
-  auto pd = dnnl::binary::primitive_desc(
-      engine, dnnl::algorithm::binary_add, src.get_memory().get_desc(),
-      dst.get_memory().get_desc(), dst.get_memory().get_desc());
-  dnnl::binary(pd).execute(stream, {{DNNL_ARG_SRC_0, src.get_memory()},
-                                    {DNNL_ARG_SRC_1, dst.get_memory()},
-                                    {DNNL_ARG_DST, dst.get_memory()}});
-  stream.wait();
+static void add_tensors(stylor::Tensor &dst, const stylor::Tensor &src) {
+  float *d = dst.get_data();
+  const float *s = src.get_data();
+  auto dims = dst.get_dims();
+  const std::size_t n = dims[0] * dims[1] * dims[2] * dims[3];
+#pragma omp parallel for simd
+  for (std::size_t i = 0; i < n; ++i)
+    d[i] += s[i];
 }
 
 /// @brief Clips all gradient buffers in @p params so their global L2 norm
@@ -109,6 +107,9 @@ void handle_train(const std::string &model, const std::string &style,
 
   stylor::AdamOptimizer optimizer(learning_rate);
 
+  std::cout << "Initializing training context...\n";
+  stylor::TrainingContext ctx(engine, image_size, image_size);
+
   std::cout << "Preprocessing style image...\n";
   stylor::Image style_img = stylor::load_image(style);
   if (style_img.width != image_size || style_img.height != image_size) {
@@ -131,8 +132,8 @@ void handle_train(const std::string &model, const std::string &style,
 
   for (auto layer : style_layers) {
     style_targets.emplace(
-        layer, stylor::compute_gram_matrix(vgg.get_feature_map(layer), engine,
-                                           stream));
+        layer, stylor::compute_gram_matrix(vgg.get_feature_map(layer),
+                                           ctx.gram(layer), engine, stream));
   }
 
   std::vector<std::string> content_images;
@@ -205,7 +206,7 @@ void handle_train(const std::string &model, const std::string &style,
         total_loss += current_c_loss;
 
         if (c_loss.gradient) {
-          scale_tensor(*c_loss.gradient, alpha, engine, stream);
+          scale_tensor(*c_loss.gradient, alpha);
           loss_gradients.emplace(stylor::VggLayer::relu4_2,
                                  std::move(*c_loss.gradient));
         }
@@ -214,15 +215,15 @@ void handle_train(const std::string &model, const std::string &style,
         float total_s_loss = 0.0f;
         for (auto l : style_layers) {
           auto gram = stylor::compute_gram_matrix(vgg.get_feature_map(l),
-                                                  engine, stream);
-          auto s_loss = stylor::compute_style_loss(gram, style_targets.at(l),
-                                                   vgg.get_feature_map(l), true,
-                                                   engine, stream);
+                                                  ctx.gram(l), engine, stream);
+          auto s_loss = stylor::compute_style_loss(
+              gram, style_targets.at(l), vgg.get_feature_map(l),
+              ctx.style_bw(l), true, engine, stream);
           total_s_loss += s_loss.value;
           if (s_loss.gradient) {
             // Scale by beta: consistent with current_s_loss = beta *
             // total_s_loss.
-            scale_tensor(*s_loss.gradient, beta, engine, stream);
+            scale_tensor(*s_loss.gradient, beta);
             loss_gradients.emplace(l, std::move(*s_loss.gradient));
           }
         }
@@ -236,7 +237,7 @@ void handle_train(const std::string &model, const std::string &style,
         total_loss += current_tv_loss;
 
         if (tv_loss.gradient) {
-          scale_tensor(*tv_loss.gradient, tv_weight, engine, stream);
+          scale_tensor(*tv_loss.gradient, tv_weight);
         }
 
         // VGG Backward
@@ -244,7 +245,7 @@ void handle_train(const std::string &model, const std::string &style,
 
         // Add TV derivative
         if (tv_loss.gradient) {
-          add_tensors(vgg_grad, *tv_loss.gradient, engine, stream);
+          add_tensors(vgg_grad, *tv_loss.gradient);
         }
 
         // TransformNetwork Backward & Step

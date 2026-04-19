@@ -1,34 +1,28 @@
 #include "stylor/loss.hpp"
+#include "stylor/training_context.hpp"
 #include <cstring>
 
 namespace stylor {
 
-Tensor compute_gram_matrix(const Tensor &feature_map,
+Tensor compute_gram_matrix(const Tensor &feature_map, const GramPrimitives &gp,
                            const dnnl::engine &engine, dnnl::stream &stream) {
   auto dims = feature_map.get_dims();
   const auto C = dims[1];
   const auto H = dims[2];
   const auto W = dims[3];
-  const auto HW = H * W;
 
   Tensor dst({1, 1, C, C}, engine);
   float *g_ptr = dst.get_data();
   void *f_raw =
       static_cast<void *>(const_cast<float *>(feature_map.get_data()));
 
-  dnnl::memory::desc src_md({C, HW}, dnnl::memory::data_type::f32, {HW, 1});
-  dnnl::memory::desc wei_md({HW, C}, dnnl::memory::data_type::f32, {1, HW});
-  dnnl::memory::desc dst_md({C, C}, dnnl::memory::data_type::f32, {C, 1});
+  dnnl::memory src_mem(gp.src_md, engine, f_raw);
+  dnnl::memory wei_mem(gp.wei_md, engine, f_raw);
+  dnnl::memory dst_mem(gp.dst_md, engine, g_ptr);
 
-  auto matmul_pd = dnnl::matmul::primitive_desc(engine, src_md, wei_md, dst_md);
-
-  dnnl::memory src_mem(src_md, engine, f_raw);
-  dnnl::memory wei_mem(wei_md, engine, f_raw);
-  dnnl::memory dst_mem(dst_md, engine, g_ptr);
-
-  dnnl::matmul(matmul_pd).execute(stream, {{DNNL_ARG_SRC, src_mem},
-                                           {DNNL_ARG_WEIGHTS, wei_mem},
-                                           {DNNL_ARG_DST, dst_mem}});
+  gp.prim.execute(stream, {{DNNL_ARG_SRC, src_mem},
+                           {DNNL_ARG_WEIGHTS, wei_mem},
+                           {DNNL_ARG_DST, dst_mem}});
   stream.wait();
 
   const float scale = 1.0f / static_cast<float>(C * H * W);
@@ -73,6 +67,7 @@ LossResult compute_content_loss(const Tensor &generated, const Tensor &target,
 LossResult compute_style_loss(const Tensor &generated_gram,
                               const Tensor &target_gram,
                               const Tensor &generated_features,
+                              const StyleBackwardPrimitives &sbp,
                               bool compute_grad, const dnnl::engine &engine,
                               dnnl::stream &stream) {
   auto g_dims = generated_gram.get_dims();
@@ -106,21 +101,14 @@ LossResult compute_style_loss(const Tensor &generated_gram,
 
     // dL/dF via chain rule through the Gram forward pass.
     // df = d_gram * F
-    dnnl::memory::desc src_md({C, C}, dnnl::memory::data_type::f32, {C, 1});
-    dnnl::memory::desc wei_md({C, HW}, dnnl::memory::data_type::f32, {HW, 1});
-    dnnl::memory::desc dst_md({C, HW}, dnnl::memory::data_type::f32, {HW, 1});
-
-    auto matmul_pd =
-        dnnl::matmul::primitive_desc(engine, src_md, wei_md, dst_md);
-
-    dnnl::memory src_mem(src_md, engine, static_cast<void *>(d_gram_ptr));
-    dnnl::memory wei_mem(wei_md, engine,
+    dnnl::memory src_mem(sbp.src_md, engine, static_cast<void *>(d_gram_ptr));
+    dnnl::memory wei_mem(sbp.wei_md, engine,
                          static_cast<void *>(const_cast<float *>(f_ptr)));
-    dnnl::memory dst_mem(dst_md, engine, static_cast<void *>(df_ptr));
+    dnnl::memory dst_mem(sbp.dst_md, engine, static_cast<void *>(df_ptr));
 
-    dnnl::matmul(matmul_pd).execute(stream, {{DNNL_ARG_SRC, src_mem},
-                                             {DNNL_ARG_WEIGHTS, wei_mem},
-                                             {DNNL_ARG_DST, dst_mem}});
+    sbp.prim.execute(stream, {{DNNL_ARG_SRC, src_mem},
+                              {DNNL_ARG_WEIGHTS, wei_mem},
+                              {DNNL_ARG_DST, dst_mem}});
     stream.wait();
 
     const float scale = 1.0f / static_cast<float>(C * HW);
