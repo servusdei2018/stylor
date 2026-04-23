@@ -320,23 +320,21 @@ TransformNetwork::MemPair TransformNetwork::create_relu(MemPair src_mem) {
       src_mem.bwd.get_desc(), src_mem.bwd.get_desc(), src_mem.fwd.get_desc(),
       0.0f, 0.0f, relu_pd);
 
-  dnnl::memory dst_mem(relu_pd.dst_desc(), engine_);
-  dnnl::memory diff_dst_mem(relu_bw_pd.diff_dst_desc(), engine_);
   dnnl::eltwise_forward relu(relu_pd);
   dnnl::eltwise_backward relu_bw(relu_bw_pd);
 
   pipeline_.push_back([=, this]() mutable {
     relu.execute(stream_,
-                 {{DNNL_ARG_SRC, src_mem.fwd}, {DNNL_ARG_DST, dst_mem}});
+                 {{DNNL_ARG_SRC, src_mem.fwd}, {DNNL_ARG_DST, src_mem.fwd}});
   });
 
   backward_pipeline_.push_back([=, this]() mutable {
-    relu_bw.execute(stream_, {{DNNL_ARG_DST, dst_mem},
-                              {DNNL_ARG_DIFF_DST, diff_dst_mem},
+    relu_bw.execute(stream_, {{DNNL_ARG_DST, src_mem.fwd},
+                              {DNNL_ARG_DIFF_DST, src_mem.bwd},
                               {DNNL_ARG_DIFF_SRC, src_mem.bwd}});
   });
 
-  return {dst_mem, diff_dst_mem};
+  return src_mem;
 }
 
 TransformNetwork::MemPair TransformNetwork::create_resample(MemPair src_mem,
@@ -376,33 +374,24 @@ TransformNetwork::MemPair TransformNetwork::create_resample(MemPair src_mem,
 
 TransformNetwork::MemPair TransformNetwork::create_add(MemPair src0_mem,
                                                        MemPair src1_mem) {
-  std::vector<float> scales = {1.0f, 1.0f};
-  std::vector<dnnl::memory::desc> srcs = {src0_mem.fwd.get_desc(),
-                                          src1_mem.fwd.get_desc()};
-
-  auto sum_pd = dnnl::sum::primitive_desc(engine_, scales, srcs);
-
-  dnnl::memory dst_mem(sum_pd.dst_desc(), engine_);
-  dnnl::memory diff_dst_mem(sum_pd.dst_desc(), engine_);
-  dnnl::sum add(sum_pd);
+  auto binary_pd = dnnl::binary::primitive_desc(
+      engine_, dnnl::algorithm::binary_add, src0_mem.fwd.get_desc(),
+      src1_mem.fwd.get_desc(), src1_mem.fwd.get_desc());
+  dnnl::binary bin_add(binary_pd);
 
   pipeline_.push_back([=, this]() mutable {
-    add.execute(stream_, {{DNNL_ARG_MULTIPLE_SRC, src0_mem.fwd},
-                          {DNNL_ARG_MULTIPLE_SRC + 1, src1_mem.fwd},
-                          {DNNL_ARG_DST, dst_mem}});
+    bin_add.execute(stream_, {{DNNL_ARG_SRC_0, src0_mem.fwd},
+                              {DNNL_ARG_SRC_1, src1_mem.fwd},
+                              {DNNL_ARG_DST, src1_mem.fwd}});
   });
 
   backward_pipeline_.push_back([=, this]() mutable {
-    // Gradient of element-wise add: fan out diff_dst to both inputs.
-    dnnl::reorder(diff_dst_mem, src0_mem.bwd)
+    dnnl::reorder(src1_mem.bwd, src0_mem.bwd)
         .execute(stream_,
-                 {{DNNL_ARG_FROM, diff_dst_mem}, {DNNL_ARG_TO, src0_mem.bwd}});
-    dnnl::reorder(diff_dst_mem, src1_mem.bwd)
-        .execute(stream_,
-                 {{DNNL_ARG_FROM, diff_dst_mem}, {DNNL_ARG_TO, src1_mem.bwd}});
+                 {{DNNL_ARG_FROM, src1_mem.bwd}, {DNNL_ARG_TO, src0_mem.bwd}});
   });
 
-  return {dst_mem, diff_dst_mem};
+  return src1_mem;
 }
 
 TransformNetwork::MemPair
